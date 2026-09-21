@@ -208,6 +208,7 @@ export function getSafeConfigSummary(config) {
       healthPathConfigured:
         Boolean(config.portal.healthPath),
       timeoutMs: config.portal.timeoutMs,
+      maxResponseBytes: config.portal.maxResponseBytes,
     },
 
     otp: {

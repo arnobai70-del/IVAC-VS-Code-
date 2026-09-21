@@ -22,6 +22,11 @@ const pathSchema = z
     message: 'Path must start with "/"',
   });
 
+const mappingPathSchema = z
+  .string()
+  .trim()
+  .min(1);
+
 const optionalSecretSchema = z.preprocess(
   (value) => {
     if (typeof value === 'string' && value.trim() === '') {
@@ -55,6 +60,41 @@ const optionalLogLevelSchema = z.preprocess(
   logLevelSchema.optional(),
 );
 
+const portalSchema = z
+  .object({
+    baseUrl: z.string().url(),
+    pendingPath: pathSchema,
+    healthPath: pathSchema.nullable(),
+    timeoutMs: z.number().int().min(100).max(120_000),
+    maxResponseBytes: z
+      .number()
+      .int()
+      .min(1024)
+      .max(10 * 1024 * 1024),
+
+    mapping: z.object({
+      applicationId: mappingPathSchema,
+      userId: mappingPathSchema.nullable(),
+      phone: mappingPathSchema.nullable(),
+      password: mappingPathSchema.nullable(),
+      passportNumber: mappingPathSchema.nullable(),
+      documents: mappingPathSchema.nullable(),
+    }),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.healthPath !== null
+      && value.healthPath === value.pendingPath
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['healthPath'],
+        message:
+          'Portal healthPath must not use the destructive pending endpoint.',
+      });
+    }
+  });
+
 export const appConfigSchema = z.object({
   app: z.object({
     name: z.string().trim().min(1),
@@ -79,12 +119,7 @@ export const appConfigSchema = z.object({
     cooldownMs: z.number().int().min(1_000).max(3_600_000),
   }),
 
-  portal: z.object({
-    baseUrl: z.string().url(),
-    pendingPath: pathSchema,
-    healthPath: pathSchema.nullable(),
-    timeoutMs: z.number().int().min(100).max(120_000),
-  }),
+  portal: portalSchema,
 
   otp: z.object({
     baseUrl: z.string().url(),

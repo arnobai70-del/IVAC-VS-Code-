@@ -22,7 +22,16 @@
     "baseUrl": "https://mrboss.live",
     "pendingPath": "/api/application/pending",
     "healthPath": null,
-    "timeoutMs": 10000
+    "timeoutMs": 10000,
+    "maxResponseBytes": 1048576,
+    "mapping": {
+      "applicationId": "id",
+      "userId": "user_id",
+      "phone": "phone",
+      "password": "password",
+      "passportNumber": "passport_number",
+      "documents": "documents"
+    }
   },
   "otp": {
     "baseUrl": "https://otp.cat-paymentbd.com",

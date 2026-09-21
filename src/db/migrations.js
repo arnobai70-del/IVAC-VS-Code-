@@ -240,6 +240,61 @@ const MIGRATIONS = Object.freeze([
       `);
     },
   },
+
+  {
+    version: 3,
+    name: 'create_portal_intake_reservations',
+
+    up(database) {
+      database.exec(`
+        CREATE TABLE portal_intake_reservations (
+          id TEXT PRIMARY KEY,
+
+          proxy_id TEXT NOT NULL,
+
+          ip TEXT NOT NULL,
+          port INTEGER NOT NULL,
+
+          status TEXT NOT NULL
+            CHECK (
+              status IN (
+                'RESERVED',
+                'CONSUMED',
+                'RELEASED'
+              )
+            ),
+
+          job_id TEXT,
+
+          reserved_at TEXT NOT NULL,
+          consumed_at TEXT,
+          released_at TEXT,
+          release_reason TEXT,
+
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+
+          FOREIGN KEY (proxy_id)
+            REFERENCES proxies(id)
+            ON DELETE RESTRICT,
+
+          FOREIGN KEY (job_id)
+            REFERENCES jobs(id)
+            ON DELETE RESTRICT
+        );
+
+        CREATE INDEX idx_portal_intake_reservations_status
+          ON portal_intake_reservations(status);
+
+        CREATE INDEX idx_portal_intake_reservations_job
+          ON portal_intake_reservations(job_id);
+
+        CREATE UNIQUE INDEX uq_reserved_portal_intake_proxy
+          ON portal_intake_reservations(proxy_id)
+          WHERE status = 'RESERVED';
+      `);
+    },
+  },
 ]);
 
 function ensureMigrationTable(database) {

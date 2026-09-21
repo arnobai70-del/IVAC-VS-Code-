@@ -1,6 +1,7 @@
 export const ERROR_CODES = Object.freeze({
   CONFIG_ERROR: 'CONFIG_ERROR',
   DATABASE_ERROR: 'DATABASE_ERROR',
+
   JOB_NOT_FOUND: 'JOB_NOT_FOUND',
   JOB_CONFLICT: 'JOB_CONFLICT',
   INVALID_JOB_TRANSITION: 'INVALID_JOB_TRANSITION',
@@ -11,9 +12,12 @@ export const ERROR_CODES = Object.freeze({
 
   PORTAL_AUTH_ERROR: 'PORTAL_AUTH_ERROR',
   PORTAL_NETWORK_ERROR: 'PORTAL_NETWORK_ERROR',
+  PORTAL_RESPONSE_ERROR: 'PORTAL_RESPONSE_ERROR',
+
   NETWORK_TIMEOUT: 'NETWORK_TIMEOUT',
   HTTP_429: 'HTTP_429',
   REMOTE_5XX: 'REMOTE_5XX',
+
   SESSION_ERROR: 'SESSION_ERROR',
   OTP_TIMEOUT: 'OTP_TIMEOUT',
   UPLOAD_ERROR: 'UPLOAD_ERROR',
@@ -138,16 +142,86 @@ export class ProxyUnavailableError extends AppError {
     super(message, {
       ...options,
       code: ERROR_CODES.PROXY_UNAVAILABLE,
+      retryable:
+        options.retryable ?? true,
+    });
+  }
+}
+
+export class PortalAuthError extends AppError {
+  constructor(
+    message = 'Portal authentication failed.',
+    options = {},
+  ) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.PORTAL_AUTH_ERROR,
+      retryable: false,
+    });
+  }
+}
+
+export class PortalNetworkError extends AppError {
+  constructor(
+    message = 'Portal network request failed.',
+    options = {},
+  ) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.PORTAL_NETWORK_ERROR,
       retryable: true,
     });
   }
 }
 
+export class PortalResponseError extends AppError {
+  constructor(
+    message = 'Portal returned an invalid response.',
+    options = {},
+  ) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.PORTAL_RESPONSE_ERROR,
+      retryable:
+        options.retryable ?? false,
+    });
+  }
+}
+
 export class NetworkTimeoutError extends AppError {
-  constructor(message = 'Network operation timed out.', options = {}) {
+  constructor(
+    message = 'Network operation timed out.',
+    options = {},
+  ) {
     super(message, {
       ...options,
       code: ERROR_CODES.NETWORK_TIMEOUT,
+      retryable: true,
+    });
+  }
+}
+
+export class RateLimitError extends AppError {
+  constructor(
+    message = 'Remote service rate limited the request.',
+    options = {},
+  ) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.HTTP_429,
+      retryable: true,
+    });
+  }
+}
+
+export class Remote5xxError extends AppError {
+  constructor(
+    message = 'Remote service returned a server error.',
+    options = {},
+  ) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.REMOTE_5XX,
       retryable: true,
     });
   }

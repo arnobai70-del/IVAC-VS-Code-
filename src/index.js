@@ -37,6 +37,10 @@ import {
   ProxyPool,
 } from './network/proxy-pool.js';
 
+import {
+  PortalClient,
+} from './portal/portal-client.js';
+
 export async function main() {
   const config = loadConfig();
 
@@ -53,16 +57,19 @@ export async function main() {
     'Configuration loaded successfully.',
   );
 
-  const databasePath = resolve(
-    PROJECT_ROOT,
-    config.database.file,
-  );
+  const databasePath =
+    resolve(
+      PROJECT_ROOT,
+      config.database.file,
+    );
 
-  const database = openDatabase({
-    filePath: databasePath,
-    busyTimeoutMs:
-      config.database.busyTimeoutMs,
-  });
+  const database =
+    openDatabase({
+      filePath: databasePath,
+
+      busyTimeoutMs:
+        config.database.busyTimeoutMs,
+    });
 
   try {
     const migrations =
@@ -71,9 +78,12 @@ export async function main() {
     logger.info(
       {
         database: {
-          file: config.database.file,
+          file:
+            config.database.file,
+
           migrationCount:
             migrations.length,
+
           latestMigration:
             migrations.at(-1)?.version
             ?? null,
@@ -90,7 +100,9 @@ export async function main() {
 
     const proxyConfig =
       loadProxyConfig({
-        filePath: proxyConfigPath,
+        filePath:
+          proxyConfigPath,
+
         required: false,
       });
 
@@ -107,8 +119,10 @@ export async function main() {
         proxyPool: {
           configPresent:
             proxyConfig.sourceExists,
+
           total:
             proxies.length,
+
           healthyAvailable:
             proxyPool
               .countHealthyAvailable(),
@@ -117,9 +131,55 @@ export async function main() {
       'Proxy pool synchronized.',
     );
 
+    const portalClient =
+      new PortalClient({
+        baseUrl:
+          config.portal.baseUrl,
+
+        pendingPath:
+          config.portal.pendingPath,
+
+        healthPath:
+          config.portal.healthPath,
+
+        timeoutMs:
+          config.portal.timeoutMs,
+
+        maxResponseBytes:
+          config.portal.maxResponseBytes,
+
+        accessToken:
+          config.secrets
+            .portalApiAccessToken,
+      });
+
+    const portalHealth =
+      await portalClient
+        .healthCheck();
+
     logger.info(
       {
-        phase: 3,
+        portal: {
+          status:
+            portalHealth.status,
+
+          reachable:
+            portalHealth.reachable,
+
+          authenticated:
+            portalHealth.authenticated,
+
+          safeToConsume:
+            portalHealth.safeToConsume,
+        },
+      },
+      'Portal readiness probe completed.',
+    );
+
+    logger.info(
+      {
+        phase: 4,
+
         environment:
           config.app.environment,
       },
@@ -145,7 +205,8 @@ function isDirectExecution() {
 
 if (isDirectExecution()) {
   main().catch((error) => {
-    const logger = createLogger();
+    const logger =
+      createLogger();
 
     logger.fatal(
       {

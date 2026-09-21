@@ -47,24 +47,24 @@ test('migrations are idempotent', () => {
 
     assert.equal(
       migrations.length,
-      2,
+      3,
     );
 
     assert.equal(
       migrations.at(-1).version,
-      2,
+      3,
     );
 
     assert.equal(
       migrations.at(-1).name,
-      'create_proxy_pool_and_ip_allocations',
+      'create_portal_intake_reservations',
     );
   } finally {
     closeDatabase(database);
   }
 });
 
-test('migrations create durable job and network tables', () => {
+test('migrations create durable job, network, and intake tables', () => {
   const database =
     openDatabase({
       filePath: ':memory:',
@@ -73,22 +73,24 @@ test('migrations create durable job and network tables', () => {
   try {
     migrateDatabase(database);
 
-    const rows = database
-      .prepare(`
-        SELECT name
-        FROM sqlite_master
-        WHERE
-          type = 'table'
-          AND name IN (
-            'jobs',
-            'claims',
-            'proxies',
-            'ip_allocations',
-            'schema_migrations'
-          )
-        ORDER BY name
-      `)
-      .all();
+    const rows =
+      database
+        .prepare(`
+          SELECT name
+          FROM sqlite_master
+          WHERE
+            type = 'table'
+            AND name IN (
+              'jobs',
+              'claims',
+              'proxies',
+              'ip_allocations',
+              'portal_intake_reservations',
+              'schema_migrations'
+            )
+          ORDER BY name
+        `)
+        .all();
 
     assert.deepEqual(
       rows.map(
@@ -98,6 +100,7 @@ test('migrations create durable job and network tables', () => {
         'claims',
         'ip_allocations',
         'jobs',
+        'portal_intake_reservations',
         'proxies',
         'schema_migrations',
       ],
