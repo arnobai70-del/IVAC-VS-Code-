@@ -26,9 +26,14 @@ test('database enables foreign keys', () => {
         },
       );
 
-    assert.equal(result, 1);
+    assert.equal(
+      result,
+      1,
+    );
   } finally {
-    closeDatabase(database);
+    closeDatabase(
+      database,
+    );
   }
 });
 
@@ -39,39 +44,52 @@ test('migrations are idempotent', () => {
     });
 
   try {
-    migrateDatabase(database);
-    migrateDatabase(database);
+    migrateDatabase(
+      database,
+    );
+
+    migrateDatabase(
+      database,
+    );
 
     const migrations =
-      getAppliedMigrations(database);
+      getAppliedMigrations(
+        database,
+      );
 
     assert.equal(
       migrations.length,
-      3,
+      4,
     );
 
     assert.equal(
-      migrations.at(-1).version,
-      3,
+      migrations.at(-1)
+        .version,
+      4,
     );
 
     assert.equal(
-      migrations.at(-1).name,
-      'create_portal_intake_reservations',
+      migrations.at(-1)
+        .name,
+      'create_final_results',
     );
   } finally {
-    closeDatabase(database);
+    closeDatabase(
+      database,
+    );
   }
 });
 
-test('migrations create durable job, network, and intake tables', () => {
+test('migrations create durable job, network, intake, and final-result tables', () => {
   const database =
     openDatabase({
       filePath: ':memory:',
     });
 
   try {
-    migrateDatabase(database);
+    migrateDatabase(
+      database,
+    );
 
     const rows =
       database
@@ -86,6 +104,7 @@ test('migrations create durable job, network, and intake tables', () => {
               'proxies',
               'ip_allocations',
               'portal_intake_reservations',
+              'final_results',
               'schema_migrations'
             )
           ORDER BY name
@@ -98,6 +117,7 @@ test('migrations create durable job, network, and intake tables', () => {
       ),
       [
         'claims',
+        'final_results',
         'ip_allocations',
         'jobs',
         'portal_intake_reservations',
@@ -106,6 +126,8 @@ test('migrations create durable job, network, and intake tables', () => {
       ],
     );
   } finally {
-    closeDatabase(database);
+    closeDatabase(
+      database,
+    );
   }
 });

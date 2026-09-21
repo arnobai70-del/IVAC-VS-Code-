@@ -295,6 +295,99 @@ const MIGRATIONS = Object.freeze([
       `);
     },
   },
+
+  {
+    version: 4,
+    name: 'create_final_results',
+
+    up(database) {
+      database.exec(`
+        CREATE TABLE final_results (
+          id TEXT PRIMARY KEY,
+
+          job_id TEXT NOT NULL UNIQUE,
+          application_id TEXT NOT NULL,
+
+          outcome TEXT NOT NULL
+            CHECK (
+              outcome IN (
+                'SUCCESS',
+                'FAILURE'
+              )
+            ),
+
+          terminal_state TEXT NOT NULL
+            CHECK (
+              terminal_state IN (
+                'COMPLETED',
+                'FAILED_FINAL'
+              )
+            ),
+
+          result_code TEXT,
+          result_message TEXT,
+          result_data_json TEXT NOT NULL,
+
+          canonical_payload TEXT NOT NULL,
+          payload_hash TEXT NOT NULL,
+
+          idempotency_key TEXT NOT NULL UNIQUE,
+
+          delivery_status TEXT NOT NULL
+            CHECK (
+              delivery_status IN (
+                'PENDING',
+                'IN_FLIGHT',
+                'DELIVERED',
+                'UNCERTAIN'
+              )
+            ),
+
+          delivery_attempts INTEGER NOT NULL DEFAULT 0
+            CHECK (
+              delivery_attempts >= 0
+            ),
+
+          last_attempt_at TEXT,
+          delivered_at TEXT,
+
+          last_error_code TEXT,
+          last_error_message TEXT,
+
+          last_error_retryable INTEGER
+            CHECK (
+              last_error_retryable IN (
+                0,
+                1
+              )
+              OR last_error_retryable IS NULL
+            ),
+
+          last_delivery_certainty TEXT
+            CHECK (
+              last_delivery_certainty IN (
+                'NOT_SENT',
+                'REJECTED',
+                'UNCERTAIN'
+              )
+              OR last_delivery_certainty IS NULL
+            ),
+
+          last_http_status INTEGER,
+
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+
+          FOREIGN KEY (job_id)
+            REFERENCES jobs(id)
+            ON DELETE RESTRICT
+        );
+
+        CREATE INDEX idx_final_results_delivery_status
+          ON final_results(delivery_status);
+      `);
+    },
+  },
 ]);
 
 function ensureMigrationTable(database) {

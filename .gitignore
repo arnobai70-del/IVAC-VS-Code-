@@ -22,7 +22,7 @@ data/*.sqlite3-*
 
 # Logs and private runtime output
 logs/
-results/
+/results/
 tmp/
 temp/
 

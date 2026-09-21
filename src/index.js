@@ -42,6 +42,10 @@ import {
 } from './portal/portal-client.js';
 
 import {
+  PortalResultClient,
+} from './portal/portal-result-client.js';
+
+import {
   loadWorkflowDefinition,
 } from './workflow/loader.js';
 
@@ -143,6 +147,9 @@ export async function main() {
       },
       'Database initialized successfully.',
     );
+
+    const portalResultClient =
+      new PortalResultClient();
 
     const proxyConfigPath =
       resolve(
@@ -291,6 +298,30 @@ export async function main() {
 
     logger.info(
       {
+        finalResultIntegration: {
+          durableLedger:
+            true,
+
+          localDuplicateSendProtection:
+            true,
+
+          terminalAfterPortalAcknowledgement:
+            true,
+
+          portalContractConfigured:
+            portalResultClient
+              .isConfigured(),
+
+          remoteIdempotentReplay:
+            portalResultClient
+              .supportsIdempotentReplay(),
+        },
+      },
+      'Final-result integration safety boundaries configured.',
+    );
+
+    logger.info(
+      {
         workflowEngine: {
           safeTemplates:
             true,
@@ -310,7 +341,8 @@ export async function main() {
 
     logger.info(
       {
-        phase: 8,
+        phase:
+          9,
 
         environment:
           config.app
