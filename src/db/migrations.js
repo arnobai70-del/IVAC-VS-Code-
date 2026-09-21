@@ -388,6 +388,77 @@ const MIGRATIONS = Object.freeze([
       `);
     },
   },
+
+  {
+    version: 5,
+    name: 'create_job_recovery_metadata',
+
+    up(database) {
+      database.exec(`
+        CREATE TABLE job_recovery (
+          job_id TEXT PRIMARY KEY,
+
+          restart_count INTEGER NOT NULL DEFAULT 0
+            CHECK (
+              restart_count >= 0
+            ),
+
+          recovery_status TEXT NOT NULL DEFAULT 'NONE'
+            CHECK (
+              recovery_status IN (
+                'NONE',
+                'RETRY_SCHEDULED',
+                'BLOCKED_SESSION_LOSS',
+                'BLOCKED_UNSAFE_REPLAY',
+                'RETRY_EXHAUSTED',
+                'WAITING_MANUAL',
+                'FINAL_RESULT_PENDING',
+                'FINAL_RESULT_UNCERTAIN',
+                'FINAL_RESULT_DELIVERED'
+              )
+            ),
+
+          session_lost INTEGER NOT NULL DEFAULT 0
+            CHECK (
+              session_lost IN (
+                0,
+                1
+              )
+            ),
+
+          last_observed_state TEXT,
+
+          last_observed_step TEXT,
+
+          last_reason_code TEXT,
+
+          next_retry_at TEXT,
+
+          last_recovery_boot_id TEXT,
+
+          last_recovered_at TEXT,
+
+          created_at TEXT NOT NULL,
+
+          updated_at TEXT NOT NULL,
+
+          FOREIGN KEY (job_id)
+            REFERENCES jobs(id)
+            ON DELETE RESTRICT
+        );
+
+        CREATE INDEX idx_job_recovery_status
+          ON job_recovery(
+            recovery_status
+          );
+
+        CREATE INDEX idx_job_recovery_next_retry
+          ON job_recovery(
+            next_retry_at
+          );
+      `);
+    },
+  },
 ]);
 
 function ensureMigrationTable(database) {
@@ -413,58 +484,87 @@ export function migrateDatabase(database) {
       .all();
 
     const appliedVersions = new Set(
-      appliedRows.map((row) => row.version),
+      appliedRows.map(
+        (row) =>
+          row.version,
+      ),
     );
 
-    const insertMigration = database.prepare(`
-      INSERT INTO schema_migrations (
-        version,
-        name,
-        applied_at
-      )
-      VALUES (
-        @version,
-        @name,
-        @appliedAt
-      )
-    `);
+    const insertMigration =
+      database.prepare(`
+        INSERT INTO schema_migrations (
+          version,
+          name,
+          applied_at
+        )
+        VALUES (
+          @version,
+          @name,
+          @appliedAt
+        )
+      `);
 
-    const applyMigration = database.transaction(
-      (migration) => {
-        migration.up(database);
+    const applyMigration =
+      database.transaction(
+        (migration) => {
+          migration.up(
+            database,
+          );
 
-        insertMigration.run({
-          version: migration.version,
-          name: migration.name,
-          appliedAt: new Date().toISOString(),
-        });
-      },
-    );
+          insertMigration.run({
+            version:
+              migration.version,
 
-    for (const migration of MIGRATIONS) {
-      if (appliedVersions.has(migration.version)) {
+            name:
+              migration.name,
+
+            appliedAt:
+              new Date()
+                .toISOString(),
+          });
+        },
+      );
+
+    for (
+      const migration
+      of MIGRATIONS
+    ) {
+      if (
+        appliedVersions.has(
+          migration.version,
+        )
+      ) {
         continue;
       }
 
-      applyMigration(migration);
+      applyMigration(
+        migration,
+      );
     }
 
-    return getAppliedMigrations(database);
+    return getAppliedMigrations(
+      database,
+    );
   } catch (error) {
-    if (error instanceof DatabaseError) {
+    if (
+      error instanceof DatabaseError
+    ) {
       throw error;
     }
 
     throw new DatabaseError(
       'Database migration failed.',
       {
-        cause: error,
+        cause:
+          error,
       },
     );
   }
 }
 
-export function getAppliedMigrations(database) {
+export function getAppliedMigrations(
+  database,
+) {
   return database
     .prepare(`
       SELECT

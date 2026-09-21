@@ -59,19 +59,19 @@ test('migrations are idempotent', () => {
 
     assert.equal(
       migrations.length,
-      4,
+      5,
     );
 
     assert.equal(
       migrations.at(-1)
         .version,
-      4,
+      5,
     );
 
     assert.equal(
       migrations.at(-1)
         .name,
-      'create_final_results',
+      'create_job_recovery_metadata',
     );
   } finally {
     closeDatabase(
@@ -80,7 +80,7 @@ test('migrations are idempotent', () => {
   }
 });
 
-test('migrations create durable job, network, intake, and final-result tables', () => {
+test('migrations create durable job, network, intake, final-result, and recovery tables', () => {
   const database =
     openDatabase({
       filePath: ':memory:',
@@ -105,6 +105,7 @@ test('migrations create durable job, network, intake, and final-result tables', 
               'ip_allocations',
               'portal_intake_reservations',
               'final_results',
+              'job_recovery',
               'schema_migrations'
             )
           ORDER BY name
@@ -119,6 +120,7 @@ test('migrations create durable job, network, intake, and final-result tables', 
         'claims',
         'final_results',
         'ip_allocations',
+        'job_recovery',
         'jobs',
         'portal_intake_reservations',
         'proxies',

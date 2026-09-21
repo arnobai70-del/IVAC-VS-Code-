@@ -159,6 +159,14 @@ export class FinalResultStore {
           WHERE job_id = ?
         `),
 
+      listByDeliveryStatus:
+        database.prepare(`
+          SELECT *
+          FROM final_results
+          WHERE delivery_status = ?
+          ORDER BY updated_at, job_id
+        `),
+
       insert:
         database.prepare(`
           INSERT INTO final_results (
@@ -175,13 +183,6 @@ export class FinalResultStore {
             idempotency_key,
             delivery_status,
             delivery_attempts,
-            last_attempt_at,
-            delivered_at,
-            last_error_code,
-            last_error_message,
-            last_error_retryable,
-            last_delivery_certainty,
-            last_http_status,
             created_at,
             updated_at
           )
@@ -199,13 +200,6 @@ export class FinalResultStore {
             @idempotencyKey,
             'PENDING',
             0,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
             @now,
             @now
           )
@@ -252,6 +246,23 @@ export class FinalResultStore {
             last_error_code = @errorCode,
             last_error_message = @errorMessage,
             last_error_retryable = @errorRetryable,
+            last_delivery_certainty = 'UNCERTAIN',
+            updated_at = @now
+          WHERE
+            job_id = @jobId
+            AND delivery_status = 'IN_FLIGHT'
+        `),
+
+      markInterruptedInFlightUncertain:
+        database.prepare(`
+          UPDATE final_results
+          SET
+            delivery_status = 'UNCERTAIN',
+            last_error_code =
+              'PROCESS_RESTART_DURING_DELIVERY',
+            last_error_message =
+              'Portal final-result delivery became uncertain after process restart.',
+            last_error_retryable = 0,
             last_delivery_certainty = 'UNCERTAIN',
             updated_at = @now
           WHERE
@@ -529,6 +540,31 @@ export class FinalResultStore {
     );
   }
 
+  listByDeliveryStatus(
+    deliveryStatus,
+  ) {
+    if (
+      !Object.values(
+        FINAL_RESULT_DELIVERY_STATUSES,
+      ).includes(
+        deliveryStatus,
+      )
+    ) {
+      throw new TypeError(
+        `Unsupported final-result delivery status: ${deliveryStatus}`,
+      );
+    }
+
+    return this.statements
+      .listByDeliveryStatus
+      .all(
+        deliveryStatus,
+      )
+      .map(
+        mapFinalResult,
+      );
+  }
+
   beginDelivery(jobId) {
     return this
       .beginDeliveryTransaction
@@ -635,6 +671,52 @@ export class FinalResultStore {
     ) {
       throw new FinalResultConflictError(
         `Cannot mark final-result delivery uncertain for job ${jobId}.`,
+      );
+    }
+
+    return this.getByJobId(
+      jobId,
+    );
+  }
+
+  markInterruptedInFlightUncertain(
+    jobId,
+  ) {
+    const result =
+      this.statements
+        .markInterruptedInFlightUncertain
+        .run({
+          jobId,
+
+          now:
+            new Date()
+              .toISOString(),
+        });
+
+    if (
+      result.changes === 0
+    ) {
+      const current =
+        this.getByJobId(
+          jobId,
+        );
+
+      if (!current) {
+        throw new FinalResultConflictError(
+          `Job ${jobId} has no durable final result.`,
+        );
+      }
+
+      if (
+        current.deliveryStatus
+        === FINAL_RESULT_DELIVERY_STATUSES
+          .UNCERTAIN
+      ) {
+        return current;
+      }
+
+      throw new FinalResultConflictError(
+        `Cannot mark interrupted final-result delivery uncertain for job ${jobId} from status ${current.deliveryStatus}.`,
       );
     }
 

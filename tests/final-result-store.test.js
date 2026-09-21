@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  closeDatabase,
-  openDatabase,
-} from '../src/db/database.js';
+import Database from 'better-sqlite3';
 
 import {
   migrateDatabase,
@@ -15,12 +12,12 @@ import {
 } from '../src/jobs/job-store.js';
 
 import {
-  FINAL_RESULT_OUTCOMES,
   normalizeFinalResult,
 } from '../src/results/final-result.js';
 
 import {
-  FINAL_RESULT_ERROR_CODES,
+  FinalResultConflictError,
+  PortalResultDeliveryUncertainError,
 } from '../src/results/final-result-errors.js';
 
 import {
@@ -30,33 +27,49 @@ import {
 
 function createFixture() {
   const database =
-    openDatabase({
-      filePath:
-        ':memory:',
-    });
+    new Database(
+      ':memory:',
+    );
+
+  database.pragma(
+    'foreign_keys = ON',
+  );
 
   migrateDatabase(
     database,
   );
 
+  const jobStore =
+    new JobStore(
+      database,
+    );
+
+  const job =
+    jobStore
+      .createOrGetJob({
+        applicationId:
+          'application-final-result-1',
+
+        userId:
+          'user-1',
+      })
+      .job;
+
+  const store =
+    new FinalResultStore(
+      database,
+    );
+
   return {
     database,
-
-    jobs:
-      new JobStore(
-        database,
-      ),
-
-    results:
-      new FinalResultStore(
-        database,
-      ),
+    job,
+    store,
   };
 }
 
-function makeResult(
+function createResult(
   job,
-  data = {},
+  overrides = {},
 ) {
   return normalizeFinalResult({
     jobId:
@@ -66,48 +79,48 @@ function makeResult(
       job.applicationId,
 
     outcome:
-      FINAL_RESULT_OUTCOMES
-        .SUCCESS,
+      'SUCCESS',
 
-    data,
+    code:
+      'APPOINTMENT_CONFIRMED',
+
+    message:
+      'Appointment completed successfully.',
+
+    data: {
+      reference:
+        'safe-reference-1',
+    },
+
+    ...overrides,
   });
 }
 
 test(
   'same durable final result is reused without creating a duplicate',
   () => {
-    const fixture =
+    const {
+      database,
+      job,
+      store,
+    } =
       createFixture();
 
     try {
-      const job =
-        fixture.jobs
-          .createOrGetJob({
-            applicationId:
-              'app-final-store-1',
-          })
-          .job;
-
-      const normalized =
-        makeResult(
+      const result =
+        createResult(
           job,
-          {
-            reference:
-              'same',
-          },
         );
 
       const first =
-        fixture.results
-          .createOrGet(
-            normalized,
-          );
+        store.createOrGet(
+          result,
+        );
 
       const second =
-        fixture.results
-          .createOrGet(
-            normalized,
-          );
+        store.createOrGet(
+          result,
+        );
 
       assert.equal(
         first.created,
@@ -124,23 +137,35 @@ test(
         second.record.id,
       );
 
-      const count =
-        fixture.database
-          .prepare(`
-            SELECT
-              COUNT(*) AS count
-            FROM final_results
-          `)
-          .get();
+      assert.equal(
+        second.record.payloadHash,
+        result.payloadHash,
+      );
 
       assert.equal(
-        count.count,
+        second.record.deliveryStatus,
+        FINAL_RESULT_DELIVERY_STATUSES
+          .PENDING,
+      );
+
+      const count =
+        database
+          .prepare(`
+            SELECT COUNT(*) AS count
+            FROM final_results
+            WHERE job_id = ?
+          `)
+          .get(
+            job.id,
+          )
+          .count;
+
+      assert.equal(
+        count,
         1,
       );
     } finally {
-      closeDatabase(
-        fixture.database,
-      );
+      database.close();
     }
   },
 );
@@ -148,53 +173,53 @@ test(
 test(
   'different final result for the same job fails closed',
   () => {
-    const fixture =
+    const {
+      database,
+      job,
+      store,
+    } =
       createFixture();
 
     try {
-      const job =
-        fixture.jobs
-          .createOrGetJob({
-            applicationId:
-              'app-final-store-2',
-          })
-          .job;
+      store.createOrGet(
+        createResult(
+          job,
+        ),
+      );
 
-      fixture.results
-        .createOrGet(
-          makeResult(
-            job,
-            {
-              reference:
-                'first',
-            },
-          ),
+      const conflicting =
+        createResult(
+          job,
+          {
+            outcome:
+              'FAILURE',
+
+            code:
+              'PAYMENT_FAILED',
+
+            message:
+              'Payment failed safely.',
+
+            data: {},
+          },
         );
 
       assert.throws(
-        () => {
-          fixture.results
-            .createOrGet(
-              makeResult(
-                job,
-                {
-                  reference:
-                    'different',
-                },
-              ),
-            );
-        },
+        () =>
+          store.createOrGet(
+            conflicting,
+          ),
+        (error) => {
+          assert.ok(
+            error
+            instanceof FinalResultConflictError,
+          );
 
-        (error) => (
-          error.code
-          === FINAL_RESULT_ERROR_CODES
-            .CONFLICT
-        ),
+          return true;
+        },
       );
     } finally {
-      closeDatabase(
-        fixture.database,
-      );
+      database.close();
     }
   },
 );
@@ -202,67 +227,67 @@ test(
 test(
   'delivery begin is exclusive and increments attempts once',
   () => {
-    const fixture =
+    const {
+      database,
+      job,
+      store,
+    } =
       createFixture();
 
     try {
-      const job =
-        fixture.jobs
-          .createOrGetJob({
-            applicationId:
-              'app-final-store-3',
-          })
-          .job;
+      store.createOrGet(
+        createResult(
+          job,
+        ),
+      );
 
-      fixture.results
-        .createOrGet(
-          makeResult(
-            job,
-          ),
+      const first =
+        store.beginDelivery(
+          job.id,
         );
 
-      const started =
-        fixture.results
-          .beginDelivery(
-            job.id,
-          );
-
       assert.equal(
-        started.started,
+        first.started,
         true,
       );
 
       assert.equal(
-        started.record
-          .deliveryStatus,
+        first.record.deliveryStatus,
         FINAL_RESULT_DELIVERY_STATUSES
           .IN_FLIGHT,
       );
 
       assert.equal(
-        started.record
-          .deliveryAttempts,
+        first.record.deliveryAttempts,
         1,
       );
 
       assert.throws(
-        () => {
-          fixture.results
-            .beginDelivery(
-              job.id,
-            );
-        },
+        () =>
+          store.beginDelivery(
+            job.id,
+          ),
+        (error) => {
+          assert.ok(
+            error
+            instanceof FinalResultConflictError,
+          );
 
-        (error) => (
-          error.code
-          === FINAL_RESULT_ERROR_CODES
-            .CONFLICT
-        ),
+          return true;
+        },
+      );
+
+      const current =
+        store.getByJobId(
+          job.id,
+        );
+
+      assert.equal(
+        current.deliveryAttempts,
+        1,
       );
     } finally {
-      closeDatabase(
-        fixture.database,
-      );
+      database.close();
     }
   },
 );
@@ -270,84 +295,72 @@ test(
 test(
   'failed delivery can return safely to pending',
   () => {
-    const fixture =
+    const {
+      database,
+      job,
+      store,
+    } =
       createFixture();
 
     try {
-      const job =
-        fixture.jobs
-          .createOrGetJob({
-            applicationId:
-              'app-final-store-4',
-          })
-          .job;
+      store.createOrGet(
+        createResult(
+          job,
+        ),
+      );
 
-      fixture.results
-        .createOrGet(
-          makeResult(
-            job,
-          ),
-        );
-
-      fixture.results
-        .beginDelivery(
-          job.id,
-        );
+      store.beginDelivery(
+        job.id,
+      );
 
       const error =
-        Object.assign(
-          new Error(
-            'temporary failure',
-          ),
-          {
-            code:
-              'PORTAL_TEMPORARY_REJECTION',
+        new Error(
+          'temporary failure',
+        );
 
-            retryable:
-              true,
+      error.code =
+        'TEMPORARY_PORTAL_FAILURE';
+
+      error.retryable =
+        true;
+
+      const pending =
+        store.markPendingAfterFailure(
+          job.id,
+          error,
+          {
+            deliveryCertainty:
+              'REJECTED',
           },
         );
 
-      const record =
-        fixture.results
-          .markPendingAfterFailure(
-            job.id,
-            error,
-            {
-              deliveryCertainty:
-                'REJECTED',
-            },
-          );
-
       assert.equal(
-        record.deliveryStatus,
+        pending.deliveryStatus,
         FINAL_RESULT_DELIVERY_STATUSES
           .PENDING,
       );
 
       assert.equal(
-        record.lastErrorCode,
-        'PORTAL_TEMPORARY_REJECTION',
+        pending.lastErrorCode,
+        'TEMPORARY_PORTAL_FAILURE',
       );
 
       assert.equal(
-        record.lastErrorRetryable,
+        pending.lastErrorRetryable,
         true,
       );
 
       assert.equal(
-        record.lastDeliveryCertainty,
+        pending.lastDeliveryCertainty,
         'REJECTED',
       );
 
       assert.equal(
-        record.lastErrorMessage,
-        'Portal final-result delivery failed (PORTAL_TEMPORARY_REJECTION).',
+        pending.deliveryAttempts,
+        1,
       );
     } finally {
-      closeDatabase(
-        fixture.database,
-      );
+      database.close();
     }
   },
 );
@@ -355,50 +368,37 @@ test(
 test(
   'uncertain delivery is persisted and blocks blind replay',
   () => {
-    const fixture =
+    const {
+      database,
+      job,
+      store,
+    } =
       createFixture();
 
     try {
-      const job =
-        fixture.jobs
-          .createOrGetJob({
-            applicationId:
-              'app-final-store-5',
-          })
-          .job;
+      store.createOrGet(
+        createResult(
+          job,
+        ),
+      );
 
-      fixture.results
-        .createOrGet(
-          makeResult(
-            job,
-          ),
-        );
-
-      fixture.results
-        .beginDelivery(
-          job.id,
-        );
+      store.beginDelivery(
+        job.id,
+      );
 
       const error =
-        Object.assign(
-          new Error(
-            'network outcome uncertain',
-          ),
-          {
-            code:
-              'PORTAL_RESULT_NETWORK_UNCERTAIN',
-
-            retryable:
-              true,
-          },
+        new Error(
+          'delivery certainty unknown',
         );
 
+      error.code =
+        'PORTAL_DELIVERY_UNCERTAIN';
+
       const uncertain =
-        fixture.results
-          .markUncertain(
-            job.id,
-            error,
-          );
+        store.markUncertain(
+          job.id,
+          error,
+        );
 
       assert.equal(
         uncertain.deliveryStatus,
@@ -412,23 +412,173 @@ test(
       );
 
       assert.throws(
-        () => {
-          fixture.results
-            .beginDelivery(
-              job.id,
-            );
-        },
+        () =>
+          store.beginDelivery(
+            job.id,
+          ),
+        (thrown) => {
+          assert.ok(
+            thrown
+            instanceof PortalResultDeliveryUncertainError,
+          );
 
-        (thrown) => (
-          thrown.code
-          === FINAL_RESULT_ERROR_CODES
-            .PORTAL_RESULT_DELIVERY_UNCERTAIN
-        ),
+          return true;
+        },
       );
     } finally {
-      closeDatabase(
-        fixture.database,
+      database.close();
+    }
+  },
+);
+
+test(
+  'restart converts stale in-flight delivery to uncertain',
+  () => {
+    const {
+      database,
+      job,
+      store,
+    } =
+      createFixture();
+
+    try {
+      store.createOrGet(
+        createResult(
+          job,
+        ),
       );
+
+      store.beginDelivery(
+        job.id,
+      );
+
+      const recovered =
+        store
+          .markInterruptedInFlightUncertain(
+            job.id,
+          );
+
+      assert.equal(
+        recovered.deliveryStatus,
+        FINAL_RESULT_DELIVERY_STATUSES
+          .UNCERTAIN,
+      );
+
+      assert.equal(
+        recovered.lastErrorCode,
+        'PROCESS_RESTART_DURING_DELIVERY',
+      );
+
+      assert.equal(
+        recovered.lastDeliveryCertainty,
+        'UNCERTAIN',
+      );
+
+      assert.equal(
+        recovered.lastErrorRetryable,
+        false,
+      );
+    } finally {
+      database.close();
+    }
+  },
+);
+
+test(
+  'marking stale in-flight uncertain is idempotent after recovery',
+  () => {
+    const {
+      database,
+      job,
+      store,
+    } =
+      createFixture();
+
+    try {
+      store.createOrGet(
+        createResult(
+          job,
+        ),
+      );
+
+      store.beginDelivery(
+        job.id,
+      );
+
+      const first =
+        store
+          .markInterruptedInFlightUncertain(
+            job.id,
+          );
+
+      const second =
+        store
+          .markInterruptedInFlightUncertain(
+            job.id,
+          );
+
+      assert.equal(
+        first.deliveryStatus,
+        FINAL_RESULT_DELIVERY_STATUSES
+          .UNCERTAIN,
+      );
+
+      assert.equal(
+        second.deliveryStatus,
+        FINAL_RESULT_DELIVERY_STATUSES
+          .UNCERTAIN,
+      );
+    } finally {
+      database.close();
+    }
+  },
+);
+
+test(
+  'listByDeliveryStatus returns only matching durable results',
+  () => {
+    const {
+      database,
+      job,
+      store,
+    } =
+      createFixture();
+
+    try {
+      store.createOrGet(
+        createResult(
+          job,
+        ),
+      );
+
+      const pending =
+        store.listByDeliveryStatus(
+          FINAL_RESULT_DELIVERY_STATUSES
+            .PENDING,
+        );
+
+      const delivered =
+        store.listByDeliveryStatus(
+          FINAL_RESULT_DELIVERY_STATUSES
+            .DELIVERED,
+        );
+
+      assert.equal(
+        pending.length,
+        1,
+      );
+
+      assert.equal(
+        pending[0].jobId,
+        job.id,
+      );
+
+      assert.equal(
+        delivered.length,
+        0,
+      );
+    } finally {
+      database.close();
     }
   },
 );

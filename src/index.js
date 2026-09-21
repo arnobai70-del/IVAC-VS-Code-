@@ -42,6 +42,10 @@ import {
 } from './jobs/job-store.js';
 
 import {
+  DispatcherPool,
+} from './network/dispatcher-pool.js';
+
+import {
   IpAllocator,
 } from './network/ip-allocator.js';
 
@@ -62,12 +66,85 @@ import {
 } from './portal/portal-result-client.js';
 
 import {
+  RecoveryService,
+} from './recovery/recovery-service.js';
+
+import {
+  RecoveryStore,
+} from './recovery/recovery-store.js';
+
+import {
+  FinalResultService,
+} from './results/final-result-service.js';
+
+import {
   FinalResultStore,
 } from './results/final-result-store.js';
 
 import {
+  GracefulShutdown,
+} from './runtime/graceful-shutdown.js';
+
+import {
+  SessionManager,
+} from './session/session-manager.js';
+
+import {
   loadWorkflowDefinition,
 } from './workflow/loader.js';
+
+function summarizeRecovery(
+  results,
+) {
+  const actions = {};
+
+  for (const result of results) {
+    const action =
+      result?.action
+      ?? 'UNKNOWN';
+
+    actions[action] =
+      (
+        actions[action]
+        ?? 0
+      ) + 1;
+  }
+
+  return {
+    total:
+      results.length,
+
+    actions,
+  };
+}
+
+async function stopDashboardServer(
+  dashboardServer,
+) {
+  if (!dashboardServer) {
+    return false;
+  }
+
+  if (
+    typeof dashboardServer.stop
+      === 'function'
+  ) {
+    await dashboardServer.stop();
+
+    return true;
+  }
+
+  if (
+    typeof dashboardServer.close
+      === 'function'
+  ) {
+    await dashboardServer.close();
+
+    return true;
+  }
+
+  return false;
+}
 
 export async function main() {
   const config =
@@ -147,6 +224,12 @@ export async function main() {
   let keepDatabaseOpen =
     false;
 
+  let dashboardServer =
+    null;
+
+  let gracefulShutdown =
+    null;
+
   try {
     const migrations =
       migrateDatabase(
@@ -170,6 +253,21 @@ export async function main() {
       },
       'Database initialized successfully.',
     );
+
+    const jobStore =
+      new JobStore(
+        database,
+      );
+
+    const finalResultStore =
+      new FinalResultStore(
+        database,
+      );
+
+    const recoveryStore =
+      new RecoveryStore(
+        database,
+      );
 
     const portalResultClient =
       new PortalResultClient();
@@ -217,6 +315,82 @@ export async function main() {
         },
       },
       'Proxy pool synchronized.',
+    );
+
+    const ipAllocator =
+      new IpAllocator(
+        database,
+      );
+
+    const dispatcherPool =
+      new DispatcherPool({
+        proxyPool,
+      });
+
+    const sessionManager =
+      new SessionManager({
+        dispatcherPool,
+      });
+
+    const finalResultService =
+      new FinalResultService({
+        jobStore,
+        finalResultStore,
+        portalResultClient,
+        ipAllocator,
+      });
+
+    /*
+     * Recovery runs before any destructive Portal intake.
+     *
+     * It operates only on durable local lifecycle state.
+     * No Portal application payload, OTP, cookies, session
+     * state, or PDF binary is reconstructed from SQLite.
+     */
+    const recoveryService =
+      new RecoveryService({
+        jobStore,
+        ipAllocator,
+        recoveryStore,
+        finalResultStore,
+        finalResultService,
+        workflow,
+      });
+
+    const recoveryResults =
+      recoveryService
+        .recoverAll();
+
+    logger.info(
+      {
+        recovery:
+          summarizeRecovery(
+            recoveryResults,
+          ),
+
+        sessionRecovery: {
+          durable:
+            false,
+
+          cookieRecovery:
+            false,
+
+          dispatcherRecovery:
+            false,
+
+          sameIpAllocationRecovery:
+            true,
+        },
+
+        documentUploadRecovery: {
+          blindReplay:
+            false,
+
+          unverifiedRemoteIdempotency:
+            true,
+        },
+      },
+      'Durable restart recovery completed.',
     );
 
     const portalClient =
@@ -314,6 +488,9 @@ export async function main() {
 
           directNetworkFallback:
             false,
+
+          restartBlindUploadReplay:
+            false,
         },
       },
       'Document integration safety boundaries configured.',
@@ -338,6 +515,9 @@ export async function main() {
           remoteIdempotentReplay:
             portalResultClient
               .supportsIdempotentReplay(),
+
+          staleInFlightOnRestart:
+            'UNCERTAIN',
         },
       },
       'Final-result integration safety boundaries configured.',
@@ -365,21 +545,6 @@ export async function main() {
     if (
       config.dashboard.enabled
     ) {
-      const jobStore =
-        new JobStore(
-          database,
-        );
-
-      const ipAllocator =
-        new IpAllocator(
-          database,
-        );
-
-      const finalResultStore =
-        new FinalResultStore(
-          database,
-        );
-
       const operationalService =
         new OperationalService({
           jobStore,
@@ -437,7 +602,7 @@ export async function main() {
             },
         });
 
-      const dashboardServer =
+      dashboardServer =
         new DashboardHttpServer({
           operationalService,
 
@@ -455,9 +620,6 @@ export async function main() {
       const dashboardAddress =
         await dashboardServer
           .start();
-
-      keepDatabaseOpen =
-        true;
 
       logger.info(
         {
@@ -505,10 +667,63 @@ export async function main() {
       );
     }
 
+    gracefulShutdown =
+      new GracefulShutdown({
+        logger,
+
+        /*
+         * No destructive intake worker is started by the
+         * current bootstrap.
+         *
+         * GracefulShutdown still closes admission before
+         * all remaining cleanup. A future intake loop must
+         * wire its stop() operation here before being enabled.
+         */
+        stopIntake:
+          null,
+
+        sessionManager,
+
+        dispatcherPool,
+
+        stopDashboard:
+          async () => {
+            await stopDashboardServer(
+              dashboardServer,
+            );
+          },
+
+        closeDatabase:
+          async () => {
+            closeDatabase(
+              database,
+            );
+          },
+      });
+
+    /*
+     * The dashboard is currently the only long-lived runtime
+     * started by bootstrap. Install process signal handlers
+     * only when the process intentionally remains alive.
+     *
+     * When dashboard is disabled, main() performs startup
+     * verification/recovery and then closes the database
+     * normally in finally.
+     */
+    if (
+      config.dashboard.enabled
+    ) {
+      gracefulShutdown
+        .installSignalHandlers();
+
+      keepDatabaseOpen =
+        true;
+    }
+
     logger.info(
       {
         phase:
-          10,
+          11,
 
         environment:
           config.app
@@ -517,13 +732,65 @@ export async function main() {
         dashboardEnabled:
           config.dashboard
             .enabled,
+
+        recovery: {
+          enabled:
+            true,
+
+          boundedRetry:
+            true,
+
+          sameIpPreservation:
+            true,
+
+          sessionPersistence:
+            false,
+
+          terminalOnlyIpRelease:
+            true,
+        },
+
+        gracefulShutdown: {
+          enabled:
+            true,
+
+          signals:
+            config.dashboard.enabled
+              ? [
+                  'SIGINT',
+                  'SIGTERM',
+                ]
+              : [],
+
+          releasesNonTerminalIp:
+            false,
+        },
       },
       'Application bootstrap verified.',
     );
+
+    return {
+      phase:
+        11,
+
+      recovery:
+        summarizeRecovery(
+          recoveryResults,
+        ),
+
+      gracefulShutdown,
+    };
   } finally {
     if (
       !keepDatabaseOpen
     ) {
+      if (
+        gracefulShutdown
+      ) {
+        gracefulShutdown
+          .removeSignalHandlers();
+      }
+
       closeDatabase(
         database,
       );
