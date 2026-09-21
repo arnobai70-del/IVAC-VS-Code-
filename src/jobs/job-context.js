@@ -85,16 +85,24 @@ export class JobContext {
     }
 
     this.responses = {};
+
     this.otp = {};
+
+    this.otpWatch =
+      null;
+
     this.documents = [];
-    this.currentStep = null;
+
+    this.currentStep =
+      null;
 
     this.retryState = {
       attempt: 0,
       lastErrorCode: null,
     };
 
-    this.result = null;
+    this.result =
+      null;
   }
 
   setCurrentStep(stepId) {
@@ -126,13 +134,47 @@ export class JobContext {
     ];
   }
 
+  setOtpWatch(watch) {
+    if (
+      !watch
+      || typeof watch !== 'object'
+      || typeof watch.phone
+        !== 'string'
+      || !Array.isArray(
+        watch.baselineFingerprints,
+      )
+    ) {
+      throw new TypeError(
+        'A valid OTP watch is required.',
+      );
+    }
+
+    this.otpWatch = {
+      ...watch,
+
+      baselineFingerprints: [
+        ...watch.baselineFingerprints,
+      ],
+    };
+  }
+
+  clearOtpWatch() {
+    this.otpWatch =
+      null;
+  }
+
   setOtp(value) {
     this.otp =
-      value && typeof value === 'object'
+      value
+      && typeof value === 'object'
         ? {
             ...value,
           }
         : {};
+  }
+
+  clearOtp() {
+    this.otp = {};
   }
 
   setDocuments(documents) {

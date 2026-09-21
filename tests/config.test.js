@@ -27,12 +27,16 @@ import {
 } from '../src/core/errors.js';
 
 test('project app.json passes configuration validation', () => {
-  const config = loadConfig({
-    configPath:
-      DEFAULT_CONFIG_PATH,
-    env: {},
-    loadEnvFile: false,
-  });
+  const config =
+    loadConfig({
+      configPath:
+        DEFAULT_CONFIG_PATH,
+
+      env: {},
+
+      loadEnvFile:
+        false,
+    });
 
   assert.equal(
     config.app.name,
@@ -50,13 +54,34 @@ test('project app.json passes configuration validation', () => {
   );
 
   assert.equal(
-    config.network.proxyConfigFile,
+    config.network
+      .proxyConfigFile,
     'config/proxies.json',
   );
 
   assert.equal(
     config.portal.pendingPath,
     '/api/application/pending',
+  );
+
+  assert.equal(
+    config.otp.tablePath,
+    '/otp_table',
+  );
+
+  assert.equal(
+    config.otp.columns.phone,
+    'Phone Number',
+  );
+
+  assert.equal(
+    config.otp.columns.code,
+    'OTP',
+  );
+
+  assert.equal(
+    config.otp.columns.createdAt,
+    'Created At',
   );
 });
 
@@ -87,14 +112,19 @@ test('environment overrides are loaded without exposing the token in safe summar
   );
 
   try {
-    const config = loadConfig({
-      configPath:
-        DEFAULT_CONFIG_PATH,
-      envPath:
-        environmentFile,
-      env: {},
-      loadEnvFile: true,
-    });
+    const config =
+      loadConfig({
+        configPath:
+          DEFAULT_CONFIG_PATH,
+
+        envPath:
+          environmentFile,
+
+        env: {},
+
+        loadEnvFile:
+          true,
+      });
 
     assert.equal(
       config.secrets
@@ -113,10 +143,14 @@ test('environment overrides are loaded without exposing the token in safe summar
     );
 
     const safeSummary =
-      getSafeConfigSummary(config);
+      getSafeConfigSummary(
+        config,
+      );
 
     const serializedSummary =
-      JSON.stringify(safeSummary);
+      JSON.stringify(
+        safeSummary,
+      );
 
     assert.equal(
       safeSummary.secrets
@@ -158,8 +192,11 @@ test('invalid concurrency is rejected', () => {
 
   const invalidConfig = {
     app: {
-      name: 'ivac-automation',
-      environment: 'test',
+      name:
+        'ivac-automation',
+
+      environment:
+        'test',
     },
 
     runtime: {
@@ -169,44 +206,109 @@ test('invalid concurrency is rejected', () => {
     },
 
     database: {
-      file: 'data/test.sqlite3',
-      busyTimeoutMs: 5000,
+      file:
+        'data/test.sqlite3',
+
+      busyTimeoutMs:
+        5000,
     },
 
     network: {
       proxyConfigFile:
         'config/proxies.json',
-      healthCheckUrl: null,
-      healthTimeoutMs: 5000,
-      cooldownMs: 30000,
+
+      healthCheckUrl:
+        null,
+
+      healthTimeoutMs:
+        5000,
+
+      cooldownMs:
+        30000,
     },
 
     portal: {
       baseUrl:
         'https://mrboss.live',
+
       pendingPath:
         '/api/application/pending',
-      healthPath: null,
-      timeoutMs: 10000,
+
+      healthPath:
+        null,
+
+      timeoutMs:
+        10000,
+
+      maxResponseBytes:
+        1048576,
+
+      mapping: {
+        applicationId:
+          'id',
+
+        userId:
+          'user_id',
+
+        phone:
+          'phone',
+
+        password:
+          'password',
+
+        passportNumber:
+          'passport_number',
+
+        documents:
+          'documents',
+      },
     },
 
     otp: {
       baseUrl:
         'https://otp.cat-paymentbd.com',
+
       tablePath:
         '/otp_table',
-      pollIntervalMs: 3000,
-      timeoutMs: 120000,
+
+      pollIntervalMs:
+        3000,
+
+      timeoutMs:
+        120000,
+
+      maxResponseBytes:
+        2097152,
+
+      maxRows:
+        5000,
+
+      tableSelector:
+        'table',
+
+      columns: {
+        phone:
+          'Phone Number',
+
+        code:
+          'OTP',
+
+        createdAt:
+          'Created At',
+      },
     },
 
     target: {
       baseUrl:
         'https://api.ivacbd.com/iams/api/v1',
-      timeoutMs: 15000,
+
+      timeoutMs:
+        15000,
     },
 
     logging: {
-      level: 'info',
+      level:
+        'info',
     },
   };
 
@@ -226,10 +328,14 @@ test('invalid concurrency is rejected', () => {
         loadConfig({
           configPath:
             configFile,
+
           env: {},
-          loadEnvFile: false,
+
+          loadEnvFile:
+            false,
         });
       },
+
       ConfigError,
     );
   } finally {

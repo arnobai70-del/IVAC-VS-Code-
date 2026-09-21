@@ -42,17 +42,24 @@ import {
 } from './portal/portal-client.js';
 
 export async function main() {
-  const config = loadConfig();
+  const config =
+    loadConfig();
 
-  const logger = createLogger({
-    level: config.logging.level,
-    service: config.app.name,
-  });
+  const logger =
+    createLogger({
+      level:
+        config.logging.level,
+
+      service:
+        config.app.name,
+    });
 
   logger.info(
     {
       config:
-        getSafeConfigSummary(config),
+        getSafeConfigSummary(
+          config,
+        ),
     },
     'Configuration loaded successfully.',
   );
@@ -65,15 +72,19 @@ export async function main() {
 
   const database =
     openDatabase({
-      filePath: databasePath,
+      filePath:
+        databasePath,
 
       busyTimeoutMs:
-        config.database.busyTimeoutMs,
+        config.database
+          .busyTimeoutMs,
     });
 
   try {
     const migrations =
-      migrateDatabase(database);
+      migrateDatabase(
+        database,
+      );
 
     logger.info(
       {
@@ -85,7 +96,8 @@ export async function main() {
             migrations.length,
 
           latestMigration:
-            migrations.at(-1)?.version
+            migrations.at(-1)
+              ?.version
             ?? null,
         },
       },
@@ -95,7 +107,8 @@ export async function main() {
     const proxyConfigPath =
       resolve(
         PROJECT_ROOT,
-        config.network.proxyConfigFile,
+        config.network
+          .proxyConfigFile,
       );
 
     const proxyConfig =
@@ -103,22 +116,27 @@ export async function main() {
         filePath:
           proxyConfigPath,
 
-        required: false,
+        required:
+          false,
       });
 
     const proxyPool =
-      new ProxyPool(database);
+      new ProxyPool(
+        database,
+      );
 
     const proxies =
-      proxyPool.syncFromConfig(
-        proxyConfig.proxies,
-      );
+      proxyPool
+        .syncFromConfig(
+          proxyConfig.proxies,
+        );
 
     logger.info(
       {
         proxyPool: {
           configPresent:
-            proxyConfig.sourceExists,
+            proxyConfig
+              .sourceExists,
 
           total:
             proxies.length,
@@ -134,19 +152,24 @@ export async function main() {
     const portalClient =
       new PortalClient({
         baseUrl:
-          config.portal.baseUrl,
+          config.portal
+            .baseUrl,
 
         pendingPath:
-          config.portal.pendingPath,
+          config.portal
+            .pendingPath,
 
         healthPath:
-          config.portal.healthPath,
+          config.portal
+            .healthPath,
 
         timeoutMs:
-          config.portal.timeoutMs,
+          config.portal
+            .timeoutMs,
 
         maxResponseBytes:
-          config.portal.maxResponseBytes,
+          config.portal
+            .maxResponseBytes,
 
         accessToken:
           config.secrets
@@ -164,29 +187,55 @@ export async function main() {
             portalHealth.status,
 
           reachable:
-            portalHealth.reachable,
+            portalHealth
+              .reachable,
 
           authenticated:
-            portalHealth.authenticated,
+            portalHealth
+              .authenticated,
 
           safeToConsume:
-            portalHealth.safeToConsume,
+            portalHealth
+              .safeToConsume,
         },
       },
       'Portal readiness probe completed.',
     );
 
+    /*
+     * Do not use the key name "otp" for safe operational metadata.
+     * The logger intentionally redacts fields named "otp".
+     */
     logger.info(
       {
-        phase: 4,
+        otpIntegration: {
+          mode:
+            'HTML_TABLE',
+
+          baselineMatching:
+            true,
+
+          directNetworkFallback:
+            false,
+        },
+      },
+      'OTP integration configured.',
+    );
+
+    logger.info(
+      {
+        phase: 6,
 
         environment:
-          config.app.environment,
+          config.app
+            .environment,
       },
       'Application bootstrap verified.',
     );
   } finally {
-    closeDatabase(database);
+    closeDatabase(
+      database,
+    );
   }
 }
 
@@ -196,26 +245,34 @@ function isDirectExecution() {
   }
 
   return (
-    resolve(process.argv[1])
+    resolve(
+      process.argv[1],
+    )
     === resolve(
-      fileURLToPath(import.meta.url),
+      fileURLToPath(
+        import.meta.url,
+      ),
     )
   );
 }
 
 if (isDirectExecution()) {
-  main().catch((error) => {
-    const logger =
-      createLogger();
+  main().catch(
+    (error) => {
+      const logger =
+        createLogger();
 
-    logger.fatal(
-      {
-        error:
-          serializeError(error),
-      },
-      'Application startup failed.',
-    );
+      logger.fatal(
+        {
+          error:
+            serializeError(
+              error,
+            ),
+        },
+        'Application startup failed.',
+      );
 
-    process.exitCode = 1;
-  });
+      process.exitCode = 1;
+    },
+  );
 }

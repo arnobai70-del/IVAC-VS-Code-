@@ -24,26 +24,42 @@ import {
   validateEnvironmentConfig,
 } from './schema.js';
 
-const currentDirectory = dirname(fileURLToPath(import.meta.url));
+const currentDirectory =
+  dirname(
+    fileURLToPath(
+      import.meta.url,
+    ),
+  );
 
-export const PROJECT_ROOT = resolve(currentDirectory, '..', '..');
+export const PROJECT_ROOT =
+  resolve(
+    currentDirectory,
+    '..',
+    '..',
+  );
 
-export const DEFAULT_CONFIG_PATH = resolve(
-  PROJECT_ROOT,
-  'config',
-  'app.json',
-);
+export const DEFAULT_CONFIG_PATH =
+  resolve(
+    PROJECT_ROOT,
+    'config',
+    'app.json',
+  );
 
-export const DEFAULT_ENV_PATH = resolve(
-  PROJECT_ROOT,
-  '.env.local',
-);
+export const DEFAULT_ENV_PATH =
+  resolve(
+    PROJECT_ROOT,
+    '.env.local',
+  );
 
 function readJsonFile(filePath) {
   let raw;
 
   try {
-    raw = readFileSync(filePath, 'utf8');
+    raw =
+      readFileSync(
+        filePath,
+        'utf8',
+      );
   } catch (error) {
     throw new ConfigError(
       `Unable to read configuration file: ${filePath}`,
@@ -65,13 +81,19 @@ function readJsonFile(filePath) {
   }
 }
 
-function readEnvironmentFile(filePath) {
+function readEnvironmentFile(
+  filePath,
+) {
   if (!existsSync(filePath)) {
     return {};
   }
 
   try {
-    return dotenv.parse(readFileSync(filePath));
+    return dotenv.parse(
+      readFileSync(
+        filePath,
+      ),
+    );
   } catch (error) {
     throw new ConfigError(
       `Unable to read environment file: ${filePath}`,
@@ -91,7 +113,10 @@ function deepFreeze(value) {
     return value;
   }
 
-  for (const child of Object.values(value)) {
+  for (
+    const child
+    of Object.values(value)
+  ) {
     deepFreeze(child);
   }
 
@@ -99,30 +124,50 @@ function deepFreeze(value) {
 }
 
 export function loadConfig({
-  configPath = DEFAULT_CONFIG_PATH,
-  envPath = DEFAULT_ENV_PATH,
-  env = process.env,
-  loadEnvFile = true,
+  configPath =
+    DEFAULT_CONFIG_PATH,
+
+  envPath =
+    DEFAULT_ENV_PATH,
+
+  env =
+    process.env,
+
+  loadEnvFile =
+    true,
 } = {}) {
-  const rawAppConfig = readJsonFile(configPath);
+  const rawAppConfig =
+    readJsonFile(
+      configPath,
+    );
 
   let appConfig;
 
   try {
-    appConfig = validateAppConfig(rawAppConfig);
+    appConfig =
+      validateAppConfig(
+        rawAppConfig,
+      );
   } catch (error) {
     throw new ConfigError(
       'Static application configuration is invalid.',
       {
         cause: error,
-        details: formatZodIssues(error),
+
+        details:
+          formatZodIssues(
+            error,
+          ),
       },
     );
   }
 
-  const fileEnvironment = loadEnvFile
-    ? readEnvironmentFile(envPath)
-    : {};
+  const fileEnvironment =
+    loadEnvFile
+      ? readEnvironmentFile(
+          envPath,
+        )
+      : {};
 
   const mergedEnvironment = {
     ...fileEnvironment,
@@ -132,15 +177,20 @@ export function loadConfig({
   let environmentConfig;
 
   try {
-    environmentConfig = validateEnvironmentConfig(
-      mergedEnvironment,
-    );
+    environmentConfig =
+      validateEnvironmentConfig(
+        mergedEnvironment,
+      );
   } catch (error) {
     throw new ConfigError(
       'Environment configuration is invalid.',
       {
         cause: error,
-        details: formatZodIssues(error),
+
+        details:
+          formatZodIssues(
+            error,
+          ),
       },
     );
   }
@@ -150,6 +200,7 @@ export function loadConfig({
 
     app: {
       ...appConfig.app,
+
       environment:
         environmentConfig.APP_ENV
         ?? appConfig.app.environment,
@@ -157,6 +208,7 @@ export function loadConfig({
 
     logging: {
       ...appConfig.logging,
+
       level:
         environmentConfig.LOG_LEVEL
         ?? appConfig.logging.level,
@@ -164,70 +216,143 @@ export function loadConfig({
 
     secrets: {
       portalApiAccessToken:
-        environmentConfig.PORTAL_API_ACCESS_TOKEN
+        environmentConfig
+          .PORTAL_API_ACCESS_TOKEN
         ?? null,
     },
   };
 
   try {
-    validateAppConfig(configWithOverrides);
+    validateAppConfig(
+      configWithOverrides,
+    );
   } catch (error) {
     throw new ConfigError(
       'Application configuration is invalid after applying environment overrides.',
       {
         cause: error,
-        details: formatZodIssues(error),
+
+        details:
+          formatZodIssues(
+            error,
+          ),
       },
     );
   }
 
-  return deepFreeze(configWithOverrides);
+  return deepFreeze(
+    configWithOverrides,
+  );
 }
 
-export function getSafeConfigSummary(config) {
+export function getSafeConfigSummary(
+  config,
+) {
   return {
-    app: config.app,
-    runtime: config.runtime,
+    app:
+      config.app,
+
+    runtime:
+      config.runtime,
 
     database: {
-      file: config.database.file,
-      busyTimeoutMs: config.database.busyTimeoutMs,
+      file:
+        config.database.file,
+
+      busyTimeoutMs:
+        config.database
+          .busyTimeoutMs,
     },
 
     network: {
-      proxyConfigFile: config.network.proxyConfigFile,
+      proxyConfigFile:
+        config.network
+          .proxyConfigFile,
+
       healthCheckConfigured:
-        Boolean(config.network.healthCheckUrl),
-      healthTimeoutMs: config.network.healthTimeoutMs,
-      cooldownMs: config.network.cooldownMs,
+        Boolean(
+          config.network
+            .healthCheckUrl,
+        ),
+
+      healthTimeoutMs:
+        config.network
+          .healthTimeoutMs,
+
+      cooldownMs:
+        config.network
+          .cooldownMs,
     },
 
     portal: {
-      baseUrl: config.portal.baseUrl,
-      pendingPath: config.portal.pendingPath,
+      baseUrl:
+        config.portal.baseUrl,
+
+      pendingPath:
+        config.portal.pendingPath,
+
       healthPathConfigured:
-        Boolean(config.portal.healthPath),
-      timeoutMs: config.portal.timeoutMs,
-      maxResponseBytes: config.portal.maxResponseBytes,
+        Boolean(
+          config.portal
+            .healthPath,
+        ),
+
+      timeoutMs:
+        config.portal.timeoutMs,
+
+      maxResponseBytes:
+        config.portal
+          .maxResponseBytes,
     },
 
-    otp: {
-      baseUrl: config.otp.baseUrl,
-      tablePath: config.otp.tablePath,
-      pollIntervalMs: config.otp.pollIntervalMs,
-      timeoutMs: config.otp.timeoutMs,
+    /*
+     * Deliberately not named "otp".
+     * The logger treats "otp" as a secret-bearing field and redacts it.
+     */
+    otpConfig: {
+      baseUrl:
+        config.otp.baseUrl,
+
+      tablePath:
+        config.otp.tablePath,
+
+      pollIntervalMs:
+        config.otp.pollIntervalMs,
+
+      timeoutMs:
+        config.otp.timeoutMs,
+
+      maxResponseBytes:
+        config.otp
+          .maxResponseBytes,
+
+      maxRows:
+        config.otp.maxRows,
+
+      tableSelector:
+        config.otp.tableSelector,
+
+      columns:
+        config.otp.columns,
     },
 
     target: {
-      baseUrl: config.target.baseUrl,
-      timeoutMs: config.target.timeoutMs,
+      baseUrl:
+        config.target.baseUrl,
+
+      timeoutMs:
+        config.target.timeoutMs,
     },
 
-    logging: config.logging,
+    logging:
+      config.logging,
 
     secrets: {
       portalApiAccessTokenConfigured:
-        Boolean(config.secrets.portalApiAccessToken),
+        Boolean(
+          config.secrets
+            .portalApiAccessToken,
+        ),
     },
   };
 }

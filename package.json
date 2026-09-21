@@ -9,13 +9,14 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/config/schema.js && node --check src/config/loader.js && node --check src/core/errors.js && node --check src/core/logger.js && node --check src/db/database.js && node --check src/db/migrations.js && node --check src/jobs/job-state.js && node --check src/jobs/job-store.js && node --check src/jobs/job-context.js && node --check src/network/proxy-state.js && node --check src/network/proxy-config.js && node --check src/network/proxy-pool.js && node --check src/network/ip-allocator.js && node --check src/network/intake-reservation-store.js && node --check src/network/dispatcher-pool.js && node --check src/network/network-health.js && node --check src/session/cookie-jar.js && node --check src/session/session-manager.js && node --check src/session/job-http-client.js && node --check src/portal/capacity.js && node --check src/portal/portal-client.js && node --check src/portal/portal-mapper.js && node --check src/portal/portal-intake-service.js"
+    "check": "node --check src/index.js && node --check src/config/schema.js && node --check src/config/loader.js && node --check src/core/errors.js && node --check src/core/logger.js && node --check src/db/database.js && node --check src/db/migrations.js && node --check src/jobs/job-state.js && node --check src/jobs/job-store.js && node --check src/jobs/job-context.js && node --check src/network/proxy-state.js && node --check src/network/proxy-config.js && node --check src/network/proxy-pool.js && node --check src/network/ip-allocator.js && node --check src/network/intake-reservation-store.js && node --check src/network/dispatcher-pool.js && node --check src/network/network-health.js && node --check src/session/cookie-jar.js && node --check src/session/session-manager.js && node --check src/session/job-http-client.js && node --check src/portal/capacity.js && node --check src/portal/portal-client.js && node --check src/portal/portal-mapper.js && node --check src/portal/portal-intake-service.js && node --check src/otp/otp-client.js && node --check src/otp/otp-table-parser.js && node --check src/otp/otp-matcher.js && node --check src/otp/otp-service.js"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
+    "cheerio": "^1.0.0",
     "dotenv": "^16.4.5",
     "pino": "^9.0.0",
     "undici": "^6.21.3",

@@ -1,89 +1,134 @@
 import assert from 'node:assert/strict';
+
+import {
+  Writable,
+} from 'node:stream';
+
 import test from 'node:test';
-import { Writable } from 'node:stream';
 
 import {
   createLogger,
 } from '../src/core/logger.js';
 
 function createCaptureStream() {
-  const chunks = [];
+  let output = '';
 
-  const stream = new Writable({
-    write(chunk, encoding, callback) {
-      chunks.push(chunk.toString());
-      callback();
-    },
-  });
+  const stream =
+    new Writable({
+      write(
+        chunk,
+        encoding,
+        callback,
+      ) {
+        void encoding;
+
+        output +=
+          chunk.toString();
+
+        callback();
+      },
+    });
 
   return {
     stream,
 
-    read() {
-      return chunks.join('');
+    getOutput() {
+      return output;
     },
   };
 }
 
-test('logger redacts sensitive fields', async () => {
-  const capture = createCaptureStream();
+test('logger redacts sensitive fields including OTP values', async () => {
+  const capture =
+    createCaptureStream();
 
-  const logger = createLogger({
-    level: 'info',
-    service: 'logger-test',
-    destination: capture.stream,
-  });
+  const logger =
+    createLogger({
+      level:
+        'info',
+
+      service:
+        'logger-test',
+
+      destination:
+        capture.stream,
+    });
 
   logger.info(
     {
-      headers: {
-        authorization: 'Bearer secret-token',
+      password:
+        'password-secret',
+
+      authorization:
+        'Bearer auth-secret',
+
+      token:
+        'token-secret',
+
+      nested: {
+        otp: {
+          code:
+            '654321',
+        },
+
+        otpCode:
+          '123456',
       },
 
-      job: {
-        password: 'secret-password',
-      },
-
-      otp: {
-        code: '123456',
-      },
-
-      secrets: {
-        portalApiAccessToken:
-          'secret-portal-token',
-      },
+      safeField:
+        'visible-value',
     },
-    'Sensitive data test',
+    'redaction test',
   );
 
-  await new Promise((resolve) => {
-    setImmediate(resolve);
-  });
+  await new Promise(
+    (resolve) => {
+      setImmediate(resolve);
+    },
+  );
 
-  const output = capture.read();
+  const output =
+    capture.getOutput();
 
   assert.equal(
-    output.includes('Bearer secret-token'),
+    output.includes(
+      'password-secret',
+    ),
     false,
   );
 
   assert.equal(
-    output.includes('secret-password'),
+    output.includes(
+      'auth-secret',
+    ),
     false,
   );
 
   assert.equal(
-    output.includes('123456'),
+    output.includes(
+      'token-secret',
+    ),
     false,
   );
 
   assert.equal(
-    output.includes('secret-portal-token'),
+    output.includes(
+      '654321',
+    ),
     false,
   );
 
   assert.equal(
-    output.includes('[REDACTED]'),
+    output.includes(
+      '123456',
+    ),
+    false,
+  );
+
+  assert.equal(
+    output.includes(
+      'visible-value',
+    ),
     true,
   );
 });

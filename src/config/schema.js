@@ -27,9 +27,15 @@ const mappingPathSchema = z
   .trim()
   .min(1);
 
+const nullableMappingPathSchema =
+  mappingPathSchema.nullable();
+
 const optionalSecretSchema = z.preprocess(
   (value) => {
-    if (typeof value === 'string' && value.trim() === '') {
+    if (
+      typeof value === 'string'
+      && value.trim() === ''
+    ) {
       return undefined;
     }
 
@@ -40,7 +46,10 @@ const optionalSecretSchema = z.preprocess(
 
 const optionalEnvironmentSchema = z.preprocess(
   (value) => {
-    if (typeof value === 'string' && value.trim() === '') {
+    if (
+      typeof value === 'string'
+      && value.trim() === ''
+    ) {
       return undefined;
     }
 
@@ -51,7 +60,10 @@ const optionalEnvironmentSchema = z.preprocess(
 
 const optionalLogLevelSchema = z.preprocess(
   (value) => {
-    if (typeof value === 'string' && value.trim() === '') {
+    if (
+      typeof value === 'string'
+      && value.trim() === ''
+    ) {
       return undefined;
     }
 
@@ -65,93 +77,228 @@ const portalSchema = z
     baseUrl: z.string().url(),
     pendingPath: pathSchema,
     healthPath: pathSchema.nullable(),
-    timeoutMs: z.number().int().min(100).max(120_000),
-    maxResponseBytes: z
-      .number()
-      .int()
-      .min(1024)
-      .max(10 * 1024 * 1024),
+
+    timeoutMs:
+      z.number()
+        .int()
+        .min(100)
+        .max(120_000),
+
+    maxResponseBytes:
+      z.number()
+        .int()
+        .min(1024)
+        .max(10 * 1024 * 1024),
 
     mapping: z.object({
-      applicationId: mappingPathSchema,
-      userId: mappingPathSchema.nullable(),
-      phone: mappingPathSchema.nullable(),
-      password: mappingPathSchema.nullable(),
-      passportNumber: mappingPathSchema.nullable(),
-      documents: mappingPathSchema.nullable(),
+      applicationId:
+        mappingPathSchema,
+
+      userId:
+        nullableMappingPathSchema,
+
+      phone:
+        nullableMappingPathSchema,
+
+      password:
+        nullableMappingPathSchema,
+
+      passportNumber:
+        nullableMappingPathSchema,
+
+      documents:
+        nullableMappingPathSchema,
     }),
   })
   .superRefine((value, context) => {
     if (
       value.healthPath !== null
-      && value.healthPath === value.pendingPath
+      && value.healthPath
+        === value.pendingPath
     ) {
       context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['healthPath'],
+        code:
+          z.ZodIssueCode.custom,
+
+        path: [
+          'healthPath',
+        ],
+
         message:
           'Portal healthPath must not use the destructive pending endpoint.',
       });
     }
   });
 
+const otpSchema = z.object({
+  baseUrl:
+    z.string().url(),
+
+  tablePath:
+    pathSchema,
+
+  pollIntervalMs:
+    z.number()
+      .int()
+      .min(250)
+      .max(60_000),
+
+  timeoutMs:
+    z.number()
+      .int()
+      .min(1_000)
+      .max(600_000),
+
+  maxResponseBytes:
+    z.number()
+      .int()
+      .min(1024)
+      .max(10 * 1024 * 1024),
+
+  maxRows:
+    z.number()
+      .int()
+      .min(1)
+      .max(100_000),
+
+  tableSelector:
+    z.string()
+      .trim()
+      .min(1),
+
+  columns: z.object({
+    phone:
+      z.string()
+        .trim()
+        .min(1),
+
+    code:
+      z.string()
+        .trim()
+        .min(1),
+
+    createdAt:
+      z.string()
+        .trim()
+        .min(1),
+  }),
+});
+
 export const appConfigSchema = z.object({
   app: z.object({
-    name: z.string().trim().min(1),
-    environment: environmentSchema,
+    name:
+      z.string()
+        .trim()
+        .min(1),
+
+    environment:
+      environmentSchema,
   }),
 
   runtime: z.object({
-    concurrency: z.number().int().min(1).max(100),
-    jobsPerCycle: z.number().int().min(1).max(100),
-    requestDelayMs: z.number().int().min(0).max(60_000),
+    concurrency:
+      z.number()
+        .int()
+        .min(1)
+        .max(100),
+
+    jobsPerCycle:
+      z.number()
+        .int()
+        .min(1)
+        .max(100),
+
+    requestDelayMs:
+      z.number()
+        .int()
+        .min(0)
+        .max(60_000),
   }),
 
   database: z.object({
-    file: z.string().trim().min(1),
-    busyTimeoutMs: z.number().int().min(100).max(120_000),
+    file:
+      z.string()
+        .trim()
+        .min(1),
+
+    busyTimeoutMs:
+      z.number()
+        .int()
+        .min(100)
+        .max(120_000),
   }),
 
   network: z.object({
-    proxyConfigFile: z.string().trim().min(1),
-    healthCheckUrl: z.string().url().nullable(),
-    healthTimeoutMs: z.number().int().min(250).max(120_000),
-    cooldownMs: z.number().int().min(1_000).max(3_600_000),
+    proxyConfigFile:
+      z.string()
+        .trim()
+        .min(1),
+
+    healthCheckUrl:
+      z.string()
+        .url()
+        .nullable(),
+
+    healthTimeoutMs:
+      z.number()
+        .int()
+        .min(250)
+        .max(120_000),
+
+    cooldownMs:
+      z.number()
+        .int()
+        .min(1_000)
+        .max(3_600_000),
   }),
 
-  portal: portalSchema,
+  portal:
+    portalSchema,
 
-  otp: z.object({
-    baseUrl: z.string().url(),
-    tablePath: pathSchema,
-    pollIntervalMs: z.number().int().min(250).max(60_000),
-    timeoutMs: z.number().int().min(1_000).max(600_000),
-  }),
+  otp:
+    otpSchema,
 
   target: z.object({
-    baseUrl: z.string().url(),
-    timeoutMs: z.number().int().min(100).max(120_000),
+    baseUrl:
+      z.string()
+        .url(),
+
+    timeoutMs:
+      z.number()
+        .int()
+        .min(100)
+        .max(120_000),
   }),
 
   logging: z.object({
-    level: logLevelSchema,
+    level:
+      logLevelSchema,
   }),
 });
 
 export const environmentConfigSchema = z
   .object({
-    PORTAL_API_ACCESS_TOKEN: optionalSecretSchema,
-    APP_ENV: optionalEnvironmentSchema,
-    LOG_LEVEL: optionalLogLevelSchema,
+    PORTAL_API_ACCESS_TOKEN:
+      optionalSecretSchema,
+
+    APP_ENV:
+      optionalEnvironmentSchema,
+
+    LOG_LEVEL:
+      optionalLogLevelSchema,
   })
   .passthrough();
 
 export function validateAppConfig(value) {
-  return appConfigSchema.parse(value);
+  return appConfigSchema.parse(
+    value,
+  );
 }
 
 export function validateEnvironmentConfig(value) {
-  return environmentConfigSchema.parse(value);
+  return environmentConfigSchema.parse(
+    value,
+  );
 }
 
 export function formatZodIssues(error) {
@@ -159,8 +306,13 @@ export function formatZodIssues(error) {
     return [];
   }
 
-  return error.issues.map((issue) => ({
-    path: issue.path.join('.'),
-    message: issue.message,
-  }));
+  return error.issues.map(
+    (issue) => ({
+      path:
+        issue.path.join('.'),
+
+      message:
+        issue.message,
+    }),
+  );
 }

@@ -11,16 +11,28 @@ import {
 
 function createFixture() {
   const job = {
-    id: 'job-1',
-    applicationId: 'app-1',
+    id:
+      'job-1',
+
+    applicationId:
+      'app-1',
   };
 
   const allocation = {
-    allocationId: 'alloc-1',
-    jobId: 'job-1',
-    proxyId: 'proxy-1',
-    ip: '203.0.113.151',
-    port: 8080,
+    allocationId:
+      'alloc-1',
+
+    jobId:
+      'job-1',
+
+    proxyId:
+      'proxy-1',
+
+    ip:
+      '203.0.113.151',
+
+    port:
+      8080,
   };
 
   const dispatcher = {};
@@ -30,8 +42,11 @@ function createFixture() {
   };
 
   const session = {
-    jobId: 'job-1',
-    allocationId: 'alloc-1',
+    jobId:
+      'job-1',
+
+    allocationId:
+      'alloc-1',
   };
 
   return {
@@ -48,7 +63,9 @@ test('job context owns isolated mutable workflow state', () => {
     createFixture();
 
   const context =
-    new JobContext(fixture);
+    new JobContext(
+      fixture,
+    );
 
   context.setCurrentStep(
     'login',
@@ -57,22 +74,42 @@ test('job context owns isolated mutable workflow state', () => {
   context.setResponse(
     'login',
     {
-      requestId: 'req-1',
+      requestId:
+        'req-1',
     },
   );
 
+  context.setOtpWatch({
+    watchId:
+      'watch-1',
+
+    phone:
+      '01700000000',
+
+    capturedAt:
+      '2026-09-21T18:00:00.000Z',
+
+    baselineFingerprints: [
+      'old-row',
+    ],
+  });
+
   context.setOtp({
-    code: '123456',
+    code:
+      '123456',
   });
 
   context.setDocuments([
     {
-      id: 'doc-1',
+      id:
+        'doc-1',
     },
   ]);
 
   context.setRetryState({
-    attempt: 2,
+    attempt:
+      2,
+
     lastErrorCode:
       'NETWORK_TIMEOUT',
   });
@@ -87,13 +124,19 @@ test('job context owns isolated mutable workflow state', () => {
       'login',
     ),
     {
-      requestId: 'req-1',
+      requestId:
+        'req-1',
     },
   );
 
   assert.equal(
     context.otp.code,
     '123456',
+  );
+
+  assert.equal(
+    context.otpWatch.phone,
+    '01700000000',
   );
 
   assert.equal(
@@ -108,7 +151,9 @@ test('job context rejects allocation from another job', () => {
 
   fixture.allocation = {
     ...fixture.allocation,
-    jobId: 'job-other',
+
+    jobId:
+      'job-other',
   };
 
   assert.throws(
@@ -120,7 +165,8 @@ test('job context rejects allocation from another job', () => {
 
     (error) => (
       error.code
-      === ERROR_CODES.SESSION_ALLOCATION_MISMATCH
+      === ERROR_CODES
+        .SESSION_ALLOCATION_MISMATCH
     ),
   );
 });

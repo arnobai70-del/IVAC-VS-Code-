@@ -37,7 +37,15 @@
     "baseUrl": "https://otp.cat-paymentbd.com",
     "tablePath": "/otp_table",
     "pollIntervalMs": 3000,
-    "timeoutMs": 120000
+    "timeoutMs": 120000,
+    "maxResponseBytes": 2097152,
+    "maxRows": 5000,
+    "tableSelector": "table",
+    "columns": {
+      "phone": "Phone Number",
+      "code": "OTP",
+      "createdAt": "Created At"
+    }
   },
   "target": {
     "baseUrl": "https://api.ivacbd.com/iams/api/v1",
