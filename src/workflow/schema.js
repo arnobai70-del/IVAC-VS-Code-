@@ -49,13 +49,39 @@ const statusesSchema =
       },
     );
 
+const responseExpectationSchema =
+  z.object({
+    statuses:
+      statusesSchema,
+
+    response:
+      z.enum([
+        'json',
+        'text',
+        'empty',
+      ]),
+  });
+
+const headerSchema =
+  z.record(
+    z.string()
+      .trim()
+      .min(1),
+
+    z.string(),
+  )
+    .optional()
+    .default({});
+
 const httpStepSchema =
   z.object({
     id:
       stepIdSchema,
 
     type:
-      z.literal('http'),
+      z.literal(
+        'http',
+      ),
 
     method:
       z.enum([
@@ -71,32 +97,14 @@ const httpStepSchema =
       relativeRouteSchema,
 
     headers:
-      z.record(
-        z.string()
-          .trim()
-          .min(1),
-
-        z.string(),
-      )
-        .optional()
-        .default({}),
+      headerSchema,
 
     body:
       z.unknown()
         .optional(),
 
     expect:
-      z.object({
-        statuses:
-          statusesSchema,
-
-        response:
-          z.enum([
-            'json',
-            'text',
-            'empty',
-          ]),
-      }),
+      responseExpectationSchema,
   })
     .strict();
 
@@ -129,6 +137,71 @@ const otpWaitStepSchema =
   })
     .strict();
 
+const documentsPrepareStepSchema =
+  z.object({
+    id:
+      stepIdSchema,
+
+    type:
+      z.literal(
+        'documents.prepare',
+      ),
+
+    sources:
+      z.unknown()
+        .refine(
+          (value) =>
+            value !== undefined,
+          {
+            message:
+              'documents.prepare requires sources.',
+          },
+        ),
+  })
+    .strict();
+
+const documentsUploadStepSchema =
+  z.object({
+    id:
+      stepIdSchema,
+
+    type:
+      z.literal(
+        'documents.upload',
+      ),
+
+    route:
+      relativeRouteSchema,
+
+    fieldName:
+      z.string()
+        .trim()
+        .regex(
+          /^[A-Za-z0-9_.-]{1,100}$/,
+          'Upload fieldName contains unsupported characters.',
+        ),
+
+    headers:
+      headerSchema,
+
+    fields:
+      z.record(
+        z.string()
+          .trim()
+          .regex(
+            /^[A-Za-z0-9_.-]{1,100}$/,
+          ),
+
+        z.string(),
+      )
+        .optional()
+        .default({}),
+
+    expect:
+      responseExpectationSchema,
+  })
+    .strict();
+
 export const workflowStepSchema =
   z.discriminatedUnion(
     'type',
@@ -136,6 +209,8 @@ export const workflowStepSchema =
       httpStepSchema,
       otpPrepareStepSchema,
       otpWaitStepSchema,
+      documentsPrepareStepSchema,
+      documentsUploadStepSchema,
     ],
   );
 
@@ -192,7 +267,9 @@ export const workflowDefinitionSchema =
           index += 1
         ) {
           const step =
-            workflow.steps[index];
+            workflow.steps[
+              index
+            ];
 
           if (
             seen.has(
@@ -201,8 +278,7 @@ export const workflowDefinitionSchema =
           ) {
             context.addIssue({
               code:
-                z.ZodIssueCode
-                  .custom,
+                z.ZodIssueCode.custom,
 
               path: [
                 'steps',

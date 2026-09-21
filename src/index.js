@@ -80,7 +80,8 @@ export async function main() {
         workflowPath,
 
       maxSteps:
-        config.workflow.maxSteps,
+        config.workflow
+          .maxSteps,
     });
 
   logger.info(
@@ -96,7 +97,8 @@ export async function main() {
           workflow.enabled,
 
         stepCount:
-          workflow.steps.length,
+          workflow.steps
+            .length,
       },
     },
     'Workflow definition validated.',
@@ -190,7 +192,8 @@ export async function main() {
     const portalClient =
       new PortalClient({
         baseUrl:
-          config.portal.baseUrl,
+          config.portal
+            .baseUrl,
 
         pendingPath:
           config.portal
@@ -257,6 +260,37 @@ export async function main() {
 
     logger.info(
       {
+        documentIntegration: {
+          sourceAllowlist:
+            true,
+
+          pdfContentTypeValidation:
+            true,
+
+          pdfSignatureValidation:
+            true,
+
+          boundedFileSize:
+            true,
+
+          boundedTotalSize:
+            true,
+
+          multipartUpload:
+            true,
+
+          temporaryDiskFiles:
+            false,
+
+          directNetworkFallback:
+            false,
+        },
+      },
+      'Document integration safety boundaries configured.',
+    );
+
+    logger.info(
+      {
         workflowEngine: {
           safeTemplates:
             true,
@@ -276,10 +310,11 @@ export async function main() {
 
     logger.info(
       {
-        phase: 7,
+        phase: 8,
 
         environment:
-          config.app.environment,
+          config.app
+            .environment,
       },
       'Application bootstrap verified.',
     );
@@ -291,7 +326,9 @@ export async function main() {
 }
 
 function isDirectExecution() {
-  if (!process.argv[1]) {
+  if (
+    !process.argv[1]
+  ) {
     return false;
   }
 

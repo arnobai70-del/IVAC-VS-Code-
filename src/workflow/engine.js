@@ -94,7 +94,8 @@ function renderHeaders(
       templateValue,
     ]
     of Object.entries(
-      headers ?? {},
+      headers
+      ?? {},
     )
   ) {
     const rendered =
@@ -118,7 +119,65 @@ function renderHeaders(
       );
     }
 
-    output[name] =
+    output[
+      name
+    ] =
+      String(
+        rendered,
+      );
+  }
+
+  return output;
+}
+
+function renderFormFields(
+  fields,
+  context,
+) {
+  const output = {};
+
+  for (
+    const [
+      name,
+      templateValue,
+    ]
+    of Object.entries(
+      fields
+      ?? {},
+    )
+  ) {
+    const rendered =
+      renderTemplate(
+        templateValue,
+        context,
+      );
+
+    if (
+      rendered === null
+    ) {
+      output[
+        name
+      ] =
+        '';
+
+      continue;
+    }
+
+    if (
+      typeof rendered !== 'string'
+      && typeof rendered
+        !== 'number'
+      && typeof rendered
+        !== 'boolean'
+    ) {
+      throw new WorkflowStepError(
+        `Multipart field ${name} did not resolve to a scalar value.`,
+      );
+    }
+
+    output[
+      name
+    ] =
       String(
         rendered,
       );
@@ -143,10 +202,38 @@ function requireRenderedString(
   return value;
 }
 
+function publicDocument(
+  document,
+) {
+  return {
+    id:
+      document.id,
+
+    name:
+      document.name,
+
+    contentType:
+      document.contentType,
+
+    sizeBytes:
+      document.sizeBytes,
+
+    sha256:
+      document.sha256,
+
+    sourceOrigin:
+      document.sourceOrigin,
+
+    sourcePath:
+      document.sourcePath,
+  };
+}
+
 export class WorkflowEngine {
   constructor({
     targetHttpClient,
     otpService,
+    documentService = null,
     maxSteps,
   }) {
     if (
@@ -175,6 +262,21 @@ export class WorkflowEngine {
     }
 
     if (
+      documentService !== null
+      && (
+        typeof documentService
+          !== 'object'
+        || typeof documentService
+          .prepareForJobContext
+          !== 'function'
+      )
+    ) {
+      throw new TypeError(
+        'documentService must expose prepareForJobContext().',
+      );
+    }
+
+    if (
       !Number.isInteger(
         maxSteps,
       )
@@ -190,6 +292,9 @@ export class WorkflowEngine {
 
     this.otpService =
       otpService;
+
+    this.documentService =
+      documentService;
 
     this.maxSteps =
       maxSteps;
@@ -369,12 +474,6 @@ export class WorkflowEngine {
                 signal,
               });
 
-          /*
-           * Do not copy the OTP value into generic
-           * workflow responses. It remains available
-           * only under jobContext.otp and therefore as
-           * {{otp.code}} for a later workflow step.
-           */
           jobContext.setResponse(
             step.id,
             {
@@ -389,6 +488,191 @@ export class WorkflowEngine {
 
               polls:
                 result.polls,
+            },
+          );
+
+          break;
+        }
+
+        case 'documents.prepare': {
+          if (
+            !this.documentService
+          ) {
+            throw new WorkflowConfigError(
+              'Workflow requires document integration but no documentService is configured.',
+            );
+          }
+
+          const sources =
+            renderTemplate(
+              step.sources,
+              context,
+            );
+
+          const result =
+            await this.documentService
+              .prepareForJobContext({
+                jobContext,
+                sources,
+              });
+
+          jobContext.setResponse(
+            step.id,
+            {
+              prepared:
+                true,
+
+              count:
+                result.count,
+
+              totalBytes:
+                result.totalBytes,
+
+              documents:
+                result.documents,
+            },
+          );
+
+          break;
+        }
+
+        case 'documents.upload': {
+          if (
+            typeof this.targetHttpClient
+              .uploadPdf
+              !== 'function'
+          ) {
+            throw new WorkflowConfigError(
+              'Target HTTP client does not support PDF upload.',
+            );
+          }
+
+          if (
+            !Array.isArray(
+              jobContext.documents,
+            )
+            || jobContext.documents
+              .length === 0
+          ) {
+            throw new WorkflowStepError(
+              `Workflow step ${step.id} has no prepared documents to upload.`,
+            );
+          }
+
+          const route =
+            requireRenderedString(
+              renderTemplate(
+                step.route,
+                context,
+              ),
+              `Document upload route for step ${step.id}`,
+            );
+
+          const headers =
+            renderHeaders(
+              step.headers,
+              context,
+            );
+
+          const fields =
+            renderFormFields(
+              step.fields,
+              context,
+            );
+
+          const uploaded = [];
+
+          for (
+            const document
+            of jobContext.documents
+          ) {
+            assertNotAborted(
+              signal,
+            );
+
+            const existing =
+              typeof jobContext
+                .getDocumentUpload
+                === 'function'
+                ? jobContext
+                    .getDocumentUpload(
+                      step.id,
+                      document.id,
+                    )
+                : null;
+
+            if (existing) {
+              uploaded.push({
+                document:
+                  publicDocument(
+                    document,
+                  ),
+
+                response:
+                  existing,
+
+                reused:
+                  true,
+              });
+
+              continue;
+            }
+
+            const response =
+              await this.targetHttpClient
+                .uploadPdf({
+                  stepId:
+                    step.id,
+
+                  route,
+
+                  headers,
+
+                  fieldName:
+                    step.fieldName,
+
+                  fields,
+
+                  document,
+
+                  expect:
+                    step.expect,
+                });
+
+            if (
+              typeof jobContext
+                .setDocumentUpload
+                === 'function'
+            ) {
+              jobContext
+                .setDocumentUpload(
+                  step.id,
+                  document.id,
+                  response,
+                );
+            }
+
+            uploaded.push({
+              document:
+                publicDocument(
+                  document,
+                ),
+
+              response,
+
+              reused:
+                false,
+            });
+          }
+
+          jobContext.setResponse(
+            step.id,
+            {
+              uploadedCount:
+                uploaded.length,
+
+              uploads:
+                uploaded,
             },
           );
 

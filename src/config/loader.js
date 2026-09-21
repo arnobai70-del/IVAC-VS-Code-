@@ -72,7 +72,9 @@ function readJsonFile(
   }
 
   try {
-    return JSON.parse(raw);
+    return JSON.parse(
+      raw,
+    );
   } catch (error) {
     throw new ConfigError(
       `Configuration file contains invalid JSON: ${filePath}`,
@@ -86,7 +88,11 @@ function readJsonFile(
 function readEnvironmentFile(
   filePath,
 ) {
-  if (!existsSync(filePath)) {
+  if (
+    !existsSync(
+      filePath,
+    )
+  ) {
     return {};
   }
 
@@ -121,10 +127,14 @@ function deepFreeze(
     const child
     of Object.values(value)
   ) {
-    deepFreeze(child);
+    deepFreeze(
+      child,
+    );
   }
 
-  return Object.freeze(value);
+  return Object.freeze(
+    value,
+  );
 }
 
 export function loadConfig({
@@ -290,10 +300,12 @@ export function getSafeConfigSummary(
 
     portal: {
       baseUrl:
-        config.portal.baseUrl,
+        config.portal
+          .baseUrl,
 
       pendingPath:
-        config.portal.pendingPath,
+        config.portal
+          .pendingPath,
 
       healthPathConfigured:
         Boolean(
@@ -302,7 +314,8 @@ export function getSafeConfigSummary(
         ),
 
       timeoutMs:
-        config.portal.timeoutMs,
+        config.portal
+          .timeoutMs,
 
       maxResponseBytes:
         config.portal
@@ -317,7 +330,8 @@ export function getSafeConfigSummary(
         config.otp.tablePath,
 
       pollIntervalMs:
-        config.otp.pollIntervalMs,
+        config.otp
+          .pollIntervalMs,
 
       timeoutMs:
         config.otp.timeoutMs,
@@ -337,12 +351,40 @@ export function getSafeConfigSummary(
         config.otp.columns,
     },
 
-    target: {
+    documents: {
       baseUrl:
-        config.target.baseUrl,
+        config.documents
+          .baseUrl,
+
+      allowedOrigins:
+        config.documents
+          .allowedOrigins,
 
       timeoutMs:
-        config.target.timeoutMs,
+        config.documents
+          .timeoutMs,
+
+      maxCount:
+        config.documents
+          .maxCount,
+
+      maxFileBytes:
+        config.documents
+          .maxFileBytes,
+
+      maxTotalBytes:
+        config.documents
+          .maxTotalBytes,
+    },
+
+    target: {
+      baseUrl:
+        config.target
+          .baseUrl,
+
+      timeoutMs:
+        config.target
+          .timeoutMs,
     },
 
     workflow: {
@@ -350,7 +392,8 @@ export function getSafeConfigSummary(
         config.workflow.file,
 
       maxSteps:
-        config.workflow.maxSteps,
+        config.workflow
+          .maxSteps,
     },
 
     logging:

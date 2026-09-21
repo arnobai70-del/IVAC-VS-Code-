@@ -4,6 +4,10 @@ import {
 } from '../core/errors.js';
 
 import {
+  buildPdfMultipart,
+} from '../documents/multipart.js';
+
+import {
   detectManualChallenge,
 } from './challenge-detector.js';
 
@@ -43,7 +47,9 @@ function getHeader(
       key,
       value,
     ]
-    of Object.entries(headers)
+    of Object.entries(
+      headers,
+    )
   ) {
     if (
       key.toLowerCase()
@@ -53,9 +59,13 @@ function getHeader(
     }
 
     if (
-      Array.isArray(value)
+      Array.isArray(
+        value,
+      )
     ) {
-      return value.join(', ');
+      return value.join(
+        ', ',
+      );
     }
 
     if (
@@ -65,7 +75,9 @@ function getHeader(
       return null;
     }
 
-    return String(value);
+    return String(
+      value,
+    );
   }
 
   return null;
@@ -82,16 +94,15 @@ function validateHeaders(
       value,
     ]
     of Object.entries(
-      headers ?? {},
+      headers
+      ?? {},
     )
   ) {
     const normalizedName =
       name.trim()
         .toLowerCase();
 
-    if (
-      !normalizedName
-    ) {
+    if (!normalizedName) {
       throw new WorkflowStepError(
         'Workflow HTTP header name cannot be empty.',
       );
@@ -107,8 +118,12 @@ function validateHeaders(
       );
     }
 
-    output[name] =
-      String(value);
+    output[
+      name
+    ] =
+      String(
+        value,
+      );
   }
 
   return output;
@@ -129,7 +144,8 @@ function ensureJsonContentType(
   }
 
   const normalized =
-    contentType.toLowerCase();
+    contentType
+      .toLowerCase();
 
   if (
     !normalized.includes(
@@ -143,6 +159,92 @@ function ensureJsonContentType(
       `Workflow step ${stepId} expected JSON but received ${contentType}.`,
     );
   }
+}
+
+function parseExpectedResponse({
+  response,
+  expect,
+  stepId,
+}) {
+  if (
+    expect.response
+    === 'empty'
+  ) {
+    return {
+      statusCode:
+        response.statusCode,
+
+      data:
+        null,
+    };
+  }
+
+  if (
+    expect.response
+    === 'text'
+  ) {
+    return {
+      statusCode:
+        response.statusCode,
+
+      data:
+        response.body
+          .toString(
+            'utf8',
+          ),
+    };
+  }
+
+  ensureJsonContentType(
+    response.headers,
+    stepId,
+  );
+
+  if (
+    response.body.length
+    === 0
+  ) {
+    return {
+      statusCode:
+        response.statusCode,
+
+      data:
+        null,
+    };
+  }
+
+  let data;
+
+  try {
+    data =
+      JSON.parse(
+        response.body
+          .toString(
+            'utf8',
+          ),
+      );
+  } catch (error) {
+    throw new WorkflowStepError(
+      `Workflow step ${stepId} returned invalid JSON.`,
+      {
+        cause: error,
+
+        details: {
+          stepId,
+
+          statusCode:
+            response.statusCode,
+        },
+      },
+    );
+  }
+
+  return {
+    statusCode:
+      response.statusCode,
+
+    data,
+  };
 }
 
 export class TargetHttpClient {
@@ -243,82 +345,11 @@ export class TargetHttpClient {
     return resolved.toString();
   }
 
-  async requestStep({
-    stepId,
-    method,
-    route,
-    headers = {},
-    body,
+  validateResponse({
+    response,
     expect,
+    stepId,
   }) {
-    const url =
-      this.buildUrl(
-        route,
-      );
-
-    const requestHeaders =
-      validateHeaders(
-        headers,
-      );
-
-    let requestBody;
-
-    if (
-      body !== undefined
-    ) {
-      if (
-        method === 'GET'
-        || method === 'HEAD'
-      ) {
-        throw new WorkflowStepError(
-          `Workflow step ${stepId} cannot attach a body to ${method}.`,
-        );
-      }
-
-      requestBody =
-        JSON.stringify(
-          body,
-        );
-
-      const hasContentType =
-        Object.keys(
-          requestHeaders,
-        )
-          .some(
-            (name) =>
-              name.toLowerCase()
-              === 'content-type',
-          );
-
-      if (!hasContentType) {
-        requestHeaders[
-          'Content-Type'
-        ] =
-          'application/json';
-      }
-    }
-
-    const response =
-      await this.jobHttpClient
-        .request(
-          url,
-          {
-            method,
-
-            headers:
-              requestHeaders,
-
-            body:
-              requestBody,
-
-            timeoutMs:
-              this.timeoutMs,
-
-            maxRedirections:
-              0,
-          },
-        );
-
     const challenge =
       detectManualChallenge({
         statusCode:
@@ -368,82 +399,192 @@ export class TargetHttpClient {
       );
     }
 
-    if (
-      expect.response
-      === 'empty'
-    ) {
-      return {
-        statusCode:
-          response.statusCode,
-
-        data: null,
-      };
-    }
-
-    if (
-      expect.response
-      === 'text'
-    ) {
-      return {
-        statusCode:
-          response.statusCode,
-
-        data:
-          response.body
-            .toString(
-              'utf8',
-            ),
-      };
-    }
-
-    ensureJsonContentType(
-      response.headers,
+    return parseExpectedResponse({
+      response,
+      expect,
       stepId,
-    );
+    });
+  }
+
+  async requestStep({
+    stepId,
+    method,
+    route,
+    headers = {},
+    body,
+    expect,
+  }) {
+    const url =
+      this.buildUrl(
+        route,
+      );
+
+    const requestHeaders =
+      validateHeaders(
+        headers,
+      );
+
+    let requestBody;
 
     if (
-      response.body.length
-      === 0
+      body !== undefined
     ) {
-      return {
-        statusCode:
-          response.statusCode,
+      if (
+        method === 'GET'
+        || method === 'HEAD'
+      ) {
+        throw new WorkflowStepError(
+          `Workflow step ${stepId} cannot attach a body to ${method}.`,
+        );
+      }
 
-        data: null,
-      };
+      requestBody =
+        JSON.stringify(
+          body,
+        );
+
+      const hasContentType =
+        Object.keys(
+          requestHeaders,
+        )
+          .some(
+            (name) =>
+              name.toLowerCase()
+              === 'content-type',
+          );
+
+      if (
+        !hasContentType
+      ) {
+        requestHeaders[
+          'Content-Type'
+        ] =
+          'application/json';
+      }
     }
 
-    let data;
+    const response =
+      await this.jobHttpClient
+        .request(
+          url,
+          {
+            method,
 
-    try {
-      data =
-        JSON.parse(
-          response.body
-            .toString(
-              'utf8',
-            ),
-        );
-    } catch (error) {
-      throw new WorkflowStepError(
-        `Workflow step ${stepId} returned invalid JSON.`,
-        {
-          cause: error,
+            headers:
+              requestHeaders,
 
-          details: {
-            stepId,
+            body:
+              requestBody,
 
-            statusCode:
-              response.statusCode,
+            timeoutMs:
+              this.timeoutMs,
+
+            maxRedirections:
+              0,
           },
-        },
+        );
+
+    return this.validateResponse({
+      response,
+      expect,
+      stepId,
+    });
+  }
+
+  async uploadPdf({
+    stepId,
+    route,
+    headers = {},
+    fieldName,
+    fields = {},
+    document,
+    expect,
+  }) {
+    const url =
+      this.buildUrl(
+        route,
+      );
+
+    const requestHeaders =
+      validateHeaders(
+        headers,
+      );
+
+    const suppliedContentType =
+      Object.keys(
+        requestHeaders,
+      )
+        .some(
+          (name) =>
+            name.toLowerCase()
+            === 'content-type',
+        );
+
+    if (
+      suppliedContentType
+    ) {
+      throw new WorkflowStepError(
+        `Workflow step ${stepId} cannot manually set Content-Type for multipart PDF upload.`,
       );
     }
 
-    return {
-      statusCode:
-        response.statusCode,
+    if (
+      !document
+      || typeof document
+        !== 'object'
+      || !Buffer.isBuffer(
+        document.buffer,
+      )
+    ) {
+      throw new WorkflowStepError(
+        `Workflow step ${stepId} received an invalid prepared document.`,
+      );
+    }
 
-      data,
-    };
+    const multipart =
+      buildPdfMultipart({
+        fieldName,
+
+        filename:
+          document.name,
+
+        pdfBuffer:
+          document.buffer,
+
+        fields,
+      });
+
+    requestHeaders[
+      'Content-Type'
+    ] =
+      multipart.contentType;
+
+    const response =
+      await this.jobHttpClient
+        .request(
+          url,
+          {
+            method:
+              'POST',
+
+            headers:
+              requestHeaders,
+
+            body:
+              multipart.body,
+
+            timeoutMs:
+              this.timeoutMs,
+
+            maxRedirections:
+              0,
+          },
+        );
+
+    return this.validateResponse({
+      response,
+      expect,
+      stepId,
+    });
   }
 }

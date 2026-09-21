@@ -1,36 +1,40 @@
-import { z } from 'zod';
+import {
+  z,
+} from 'zod';
 
-const environmentSchema = z.enum([
-  'development',
-  'test',
-  'production',
-]);
+const environmentSchema =
+  z.enum([
+    'development',
+    'test',
+    'production',
+  ]);
 
-const logLevelSchema = z.enum([
-  'trace',
-  'debug',
-  'info',
-  'warn',
-  'error',
-  'fatal',
-]);
+const logLevelSchema =
+  z.enum([
+    'trace',
+    'debug',
+    'info',
+    'warn',
+    'error',
+    'fatal',
+  ]);
 
-const pathSchema = z
-  .string()
-  .min(1)
-  .refine(
-    (value) =>
-      value.startsWith('/'),
-    {
-      message:
-        'Path must start with "/"',
-    },
-  );
+const pathSchema =
+  z.string()
+    .min(1)
+    .refine(
+      (value) =>
+        value.startsWith('/'),
+      {
+        message:
+          'Path must start with "/"',
+      },
+    );
 
-const mappingPathSchema = z
-  .string()
-  .trim()
-  .min(1);
+const mappingPathSchema =
+  z.string()
+    .trim()
+    .min(1);
 
 const nullableMappingPathSchema =
   mappingPathSchema.nullable();
@@ -47,6 +51,7 @@ const optionalSecretSchema =
 
       return value;
     },
+
     z.string()
       .trim()
       .min(1)
@@ -65,6 +70,7 @@ const optionalEnvironmentSchema =
 
       return value;
     },
+
     environmentSchema.optional(),
   );
 
@@ -80,11 +86,12 @@ const optionalLogLevelSchema =
 
       return value;
     },
+
     logLevelSchema.optional(),
   );
 
-const portalSchema = z
-  .object({
+const portalSchema =
+  z.object({
     baseUrl:
       z.string().url(),
 
@@ -110,50 +117,51 @@ const portalSchema = z
           * 1024,
         ),
 
-    mapping: z.object({
-      applicationId:
-        mappingPathSchema,
+    mapping:
+      z.object({
+        applicationId:
+          mappingPathSchema,
 
-      userId:
-        nullableMappingPathSchema,
+        userId:
+          nullableMappingPathSchema,
 
-      phone:
-        nullableMappingPathSchema,
+        phone:
+          nullableMappingPathSchema,
 
-      password:
-        nullableMappingPathSchema,
+        password:
+          nullableMappingPathSchema,
 
-      passportNumber:
-        nullableMappingPathSchema,
+        passportNumber:
+          nullableMappingPathSchema,
 
-      documents:
-        nullableMappingPathSchema,
-    }),
+        documents:
+          nullableMappingPathSchema,
+      }),
   })
-  .superRefine(
-    (
-      value,
-      context,
-    ) => {
-      if (
-        value.healthPath !== null
-        && value.healthPath
-          === value.pendingPath
-      ) {
-        context.addIssue({
-          code:
-            z.ZodIssueCode.custom,
+    .superRefine(
+      (
+        value,
+        context,
+      ) => {
+        if (
+          value.healthPath !== null
+          && value.healthPath
+            === value.pendingPath
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
 
-          path: [
-            'healthPath',
-          ],
+            path: [
+              'healthPath',
+            ],
 
-          message:
-            'Portal healthPath must not use the destructive pending endpoint.',
-        });
-      }
-    },
-  );
+            message:
+              'Portal healthPath must not use the destructive pending endpoint.',
+          });
+        }
+      },
+    );
 
 const otpSchema =
   z.object({
@@ -214,6 +222,151 @@ const otpSchema =
             .min(1),
       }),
   });
+
+const originSchema =
+  z.string()
+    .url()
+    .superRefine(
+      (
+        value,
+        context,
+      ) => {
+        let url;
+
+        try {
+          url =
+            new URL(
+              value,
+            );
+        } catch {
+          return;
+        }
+
+        if (
+          url.protocol !== 'https:'
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            message:
+              'Document origin must use HTTPS.',
+          });
+        }
+
+        if (
+          url.username
+          || url.password
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            message:
+              'Document origin must not contain credentials.',
+          });
+        }
+
+        if (
+          url.pathname !== '/'
+          || url.search
+          || url.hash
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            message:
+              'Document allowedOrigins entries must contain only an origin.',
+          });
+        }
+      },
+    );
+
+const documentsSchema =
+  z.object({
+    baseUrl:
+      z.string()
+        .url(),
+
+    allowedOrigins:
+      z.array(
+        originSchema,
+      )
+        .min(1)
+        .max(20)
+        .refine(
+          (values) =>
+            new Set(
+              values.map(
+                (value) =>
+                  new URL(
+                    value,
+                  ).origin,
+              ),
+            ).size
+            === values.length,
+          {
+            message:
+              'Document allowedOrigins contains duplicates.',
+          },
+        ),
+
+    timeoutMs:
+      z.number()
+        .int()
+        .min(100)
+        .max(120_000),
+
+    maxCount:
+      z.number()
+        .int()
+        .min(1)
+        .max(100),
+
+    maxFileBytes:
+      z.number()
+        .int()
+        .min(1024)
+        .max(
+          50
+          * 1024
+          * 1024,
+        ),
+
+    maxTotalBytes:
+      z.number()
+        .int()
+        .min(1024)
+        .max(
+          200
+          * 1024
+          * 1024,
+        ),
+  })
+    .superRefine(
+      (
+        value,
+        context,
+      ) => {
+        if (
+          value.maxTotalBytes
+          < value.maxFileBytes
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            path: [
+              'maxTotalBytes',
+            ],
+
+            message:
+              'maxTotalBytes must be greater than or equal to maxFileBytes.',
+          });
+        }
+      },
+    );
 
 const workflowRuntimeSchema =
   z.object({
@@ -308,10 +461,14 @@ export const appConfigSchema =
     otp:
       otpSchema,
 
+    documents:
+      documentsSchema,
+
     target:
       z.object({
         baseUrl:
-          z.string().url(),
+          z.string()
+            .url(),
 
         timeoutMs:
           z.number()

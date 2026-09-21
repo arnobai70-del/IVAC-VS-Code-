@@ -25,19 +25,27 @@ function deepFreeze(
   if (
     value === null
     || typeof value !== 'object'
-    || Object.isFrozen(value)
+    || Object.isFrozen(
+      value,
+    )
   ) {
     return value;
   }
 
   for (
     const child
-    of Object.values(value)
+    of Object.values(
+      value,
+    )
   ) {
-    deepFreeze(child);
+    deepFreeze(
+      child,
+    );
   }
 
-  return Object.freeze(value);
+  return Object.freeze(
+    value,
+  );
 }
 
 function cloneInput(
@@ -52,7 +60,9 @@ function cloneInput(
 
   if (
     typeof input !== 'object'
-    || Array.isArray(input)
+    || Array.isArray(
+      input,
+    )
   ) {
     throw new TypeError(
       'job input must be an object.',
@@ -62,6 +72,55 @@ function cloneInput(
   return structuredClone(
     input,
   );
+}
+
+function cloneDocument(
+  document,
+) {
+  if (
+    !document
+    || typeof document !== 'object'
+    || Array.isArray(
+      document,
+    )
+  ) {
+    throw new TypeError(
+      'document must be an object.',
+    );
+  }
+
+  return {
+    ...document,
+
+    ...(
+      Buffer.isBuffer(
+        document.buffer,
+      )
+        ? {
+            buffer:
+              Buffer.from(
+                document.buffer,
+              ),
+          }
+        : {}
+    ),
+  };
+}
+
+function documentIdentity(
+  documents,
+) {
+  return documents
+    .map(
+      (document) =>
+        String(
+          document.id
+          ?? document.sha256
+          ?? document.name
+          ?? '',
+        ),
+    )
+    .join('\u0000');
 }
 
 export class JobContext {
@@ -146,6 +205,8 @@ export class JobContext {
       null;
 
     this.documents = [];
+
+    this.documentUploads = {};
 
     this.currentStep =
       null;
@@ -253,9 +314,76 @@ export class JobContext {
       );
     }
 
-    this.documents = [
-      ...documents,
-    ];
+    const cloned =
+      documents.map(
+        cloneDocument,
+      );
+
+    const oldIdentity =
+      documentIdentity(
+        this.documents,
+      );
+
+    const newIdentity =
+      documentIdentity(
+        cloned,
+      );
+
+    if (
+      oldIdentity
+      && oldIdentity
+        !== newIdentity
+    ) {
+      this.documentUploads = {};
+    }
+
+    this.documents =
+      cloned;
+  }
+
+  getDocumentUpload(
+    stepId,
+    documentId,
+  ) {
+    const key =
+      `${stepId}:${documentId}`;
+
+    return this.documentUploads[
+      key
+    ]
+      ?? null;
+  }
+
+  setDocumentUpload(
+    stepId,
+    documentId,
+    value,
+  ) {
+    if (
+      typeof stepId !== 'string'
+      || stepId.trim() === ''
+      || typeof documentId
+        !== 'string'
+      || documentId.trim() === ''
+    ) {
+      throw new TypeError(
+        'stepId and documentId are required for document upload state.',
+      );
+    }
+
+    const key =
+      `${
+        stepId.trim()
+      }:${
+        documentId.trim()
+      }`;
+
+    this.documentUploads[
+      key
+    ] =
+      structuredClone(
+        value,
+      );
   }
 
   setRetryState({

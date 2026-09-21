@@ -47,6 +47,16 @@
       "createdAt": "Created At"
     }
   },
+  "documents": {
+    "baseUrl": "https://mrboss.live",
+    "allowedOrigins": [
+      "https://mrboss.live"
+    ],
+    "timeoutMs": 15000,
+    "maxCount": 8,
+    "maxFileBytes": 10485760,
+    "maxTotalBytes": 31457280
+  },
   "target": {
     "baseUrl": "https://api.ivacbd.com/iams/api/v1",
     "timeoutMs": 15000
