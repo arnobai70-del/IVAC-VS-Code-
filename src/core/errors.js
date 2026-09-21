@@ -19,6 +19,9 @@ export const ERROR_CODES = Object.freeze({
   REMOTE_5XX: 'REMOTE_5XX',
 
   SESSION_ERROR: 'SESSION_ERROR',
+  SESSION_CLOSED: 'SESSION_CLOSED',
+  SESSION_ALLOCATION_MISMATCH: 'SESSION_ALLOCATION_MISMATCH',
+
   OTP_TIMEOUT: 'OTP_TIMEOUT',
   UPLOAD_ERROR: 'UPLOAD_ERROR',
   INVALID_RESPONSE: 'INVALID_RESPONSE',
@@ -223,6 +226,46 @@ export class Remote5xxError extends AppError {
       ...options,
       code: ERROR_CODES.REMOTE_5XX,
       retryable: true,
+    });
+  }
+}
+
+export class SessionError extends AppError {
+  constructor(
+    message = 'Session operation failed.',
+    options = {},
+  ) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.SESSION_ERROR,
+      retryable:
+        options.retryable ?? false,
+    });
+  }
+}
+
+export class SessionClosedError extends AppError {
+  constructor(
+    message = 'Session is already closed.',
+    options = {},
+  ) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.SESSION_CLOSED,
+      retryable: false,
+    });
+  }
+}
+
+export class SessionAllocationMismatchError extends AppError {
+  constructor(
+    message = 'Session allocation does not match the job allocation.',
+    options = {},
+  ) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.SESSION_ALLOCATION_MISMATCH,
+      retryable: false,
     });
   }
 }

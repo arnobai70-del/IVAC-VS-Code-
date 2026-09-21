@@ -53,12 +53,72 @@ function getSettingsSignature(settings) {
     .digest('hex');
 }
 
+function createProxyAgent(settings) {
+  const proxyUrl =
+    buildProxyUrl(settings);
+
+  return new ProxyAgent(
+    proxyUrl.toString(),
+  );
+}
+
 export class DispatcherPool {
   constructor({
     proxyPool,
   }) {
-    this.proxyPool = proxyPool;
-    this.dispatchers = new Map();
+    this.proxyPool =
+      proxyPool;
+
+    /*
+     * Probe dispatchers are used only for proxy/network health checks.
+     *
+     * They are deliberately separate from execution dispatchers so a
+     * health probe can never share an execution transport with a job.
+     */
+    this.proxyDispatchers =
+      new Map();
+
+    /*
+     * Execution dispatchers are keyed by allocation ID.
+     *
+     * This guarantees:
+     *
+     * allocation A -> dispatcher A
+     * allocation B -> dispatcher B
+     *
+     * even when the same proxy is reused by another job later.
+     */
+    this.allocationDispatchers =
+      new Map();
+  }
+
+  assertProxyUsable(
+    proxy,
+    {
+      allowDisabled = false,
+    } = {},
+  ) {
+    if (
+      proxy.status
+        === PROXY_STATES.DISABLED
+      && !allowDisabled
+    ) {
+      throw new ProxyUnavailableError(
+        `Proxy ${proxy.id} is disabled.`,
+      );
+    }
+
+    if (
+      !proxy.enabled
+      && !isOwnedProxyState(
+        proxy.status,
+      )
+      && !allowDisabled
+    ) {
+      throw new ProxyUnavailableError(
+        `Proxy ${proxy.id} is not enabled.`,
+      );
+    }
   }
 
   async getForProxy(
@@ -71,54 +131,49 @@ export class DispatcherPool {
       this.proxyPool
         .getRequiredProxy(proxyId);
 
-    if (
-      proxy.status === PROXY_STATES.DISABLED
-      && !allowDisabled
-    ) {
-      throw new ProxyUnavailableError(
-        `Proxy ${proxyId} is disabled.`,
-      );
-    }
-
-    if (
-      !proxy.enabled
-      && !isOwnedProxyState(proxy.status)
-      && !allowDisabled
-    ) {
-      throw new ProxyUnavailableError(
-        `Proxy ${proxyId} is not enabled.`,
-      );
-    }
+    this.assertProxyUsable(
+      proxy,
+      {
+        allowDisabled,
+      },
+    );
 
     const settings =
       this.proxyPool
         .getConnectionSettings(proxyId);
 
     const signature =
-      getSettingsSignature(settings);
+      getSettingsSignature(
+        settings,
+      );
 
     const existing =
-      this.dispatchers.get(proxyId);
+      this.proxyDispatchers
+        .get(proxyId);
 
     if (
       existing
-      && existing.signature === signature
+      && existing.signature
+        === signature
     ) {
       return existing.dispatcher;
     }
 
     if (existing) {
-      await existing.dispatcher.close();
-      this.dispatchers.delete(proxyId);
+      await existing
+        .dispatcher
+        .close();
+
+      this.proxyDispatchers
+        .delete(proxyId);
     }
 
-    const proxyUrl =
-      buildProxyUrl(settings);
-
     const dispatcher =
-      new ProxyAgent(proxyUrl.toString());
+      createProxyAgent(
+        settings,
+      );
 
-    this.dispatchers.set(
+    this.proxyDispatchers.set(
       proxyId,
       {
         dispatcher,
@@ -129,53 +184,199 @@ export class DispatcherPool {
     return dispatcher;
   }
 
-  async getForAllocation(allocation) {
+  async getForAllocation(
+    allocation,
+  ) {
     if (
       !allocation
+      || typeof allocation
+        !== 'object'
+      || !allocation.allocationId
       || !allocation.proxyId
     ) {
       throw new ProxyUnavailableError(
-        'A valid IP allocation is required before creating a dispatcher.',
+        'A valid IP allocation is required before creating a job dispatcher.',
+        {
+          retryable: false,
+        },
       );
     }
 
-    return this.getForProxy(
-      allocation.proxyId,
+    const proxy =
+      this.proxyPool
+        .getRequiredProxy(
+          allocation.proxyId,
+        );
+
+    this.assertProxyUsable(
+      proxy,
     );
+
+    if (
+      proxy.ip !== allocation.ip
+      || proxy.port
+        !== allocation.port
+    ) {
+      throw new ProxyUnavailableError(
+        `Allocation ${allocation.allocationId} no longer matches proxy ${allocation.proxyId}.`,
+        {
+          retryable: false,
+        },
+      );
+    }
+
+    const settings =
+      this.proxyPool
+        .getConnectionSettings(
+          allocation.proxyId,
+        );
+
+    const signature =
+      getSettingsSignature(
+        settings,
+      );
+
+    const existing =
+      this.allocationDispatchers
+        .get(
+          allocation.allocationId,
+        );
+
+    if (existing) {
+      if (
+        existing.proxyId
+        !== allocation.proxyId
+      ) {
+        throw new ProxyUnavailableError(
+          `Allocation ${allocation.allocationId} changed proxy ownership unexpectedly.`,
+          {
+            retryable: false,
+          },
+        );
+      }
+
+      if (
+        existing.signature
+        === signature
+      ) {
+        return existing.dispatcher;
+      }
+
+      await existing
+        .dispatcher
+        .close();
+
+      this.allocationDispatchers
+        .delete(
+          allocation.allocationId,
+        );
+    }
+
+    const dispatcher =
+      createProxyAgent(
+        settings,
+      );
+
+    this.allocationDispatchers
+      .set(
+        allocation.allocationId,
+        {
+          dispatcher,
+          signature,
+          proxyId:
+            allocation.proxyId,
+        },
+      );
+
+    return dispatcher;
   }
 
-  async closeForProxy(proxyId) {
+  async closeForAllocation(
+    allocationId,
+  ) {
     const existing =
-      this.dispatchers.get(proxyId);
+      this.allocationDispatchers
+        .get(allocationId);
 
     if (!existing) {
       return false;
     }
 
-    this.dispatchers.delete(proxyId);
+    this.allocationDispatchers
+      .delete(allocationId);
 
-    await existing.dispatcher.close();
+    await existing
+      .dispatcher
+      .close();
+
+    return true;
+  }
+
+  async closeForProxy(
+    proxyId,
+  ) {
+    const existing =
+      this.proxyDispatchers
+        .get(proxyId);
+
+    if (!existing) {
+      return false;
+    }
+
+    this.proxyDispatchers
+      .delete(proxyId);
+
+    await existing
+      .dispatcher
+      .close();
 
     return true;
   }
 
   async closeAll() {
-    const entries =
+    const probeEntries =
       Array.from(
-        this.dispatchers.values(),
+        this.proxyDispatchers
+          .values(),
       );
 
-    this.dispatchers.clear();
+    const allocationEntries =
+      Array.from(
+        this.allocationDispatchers
+          .values(),
+      );
+
+    this.proxyDispatchers
+      .clear();
+
+    this.allocationDispatchers
+      .clear();
 
     await Promise.allSettled(
-      entries.map(
+      [
+        ...probeEntries,
+        ...allocationEntries,
+      ].map(
         ({ dispatcher }) =>
           dispatcher.close(),
       ),
     );
   }
 
+  get probeSize() {
+    return this.proxyDispatchers
+      .size;
+  }
+
+  get allocationSize() {
+    return this.allocationDispatchers
+      .size;
+  }
+
   get size() {
-    return this.dispatchers.size;
+    return (
+      this.probeSize
+      + this.allocationSize
+    );
   }
 }

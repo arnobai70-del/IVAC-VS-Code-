@@ -55,13 +55,14 @@ function createFixture() {
   };
 }
 
-test('dispatcher is reused only for the same proxy configuration', async () => {
+test('probe dispatcher is reused for the same proxy configuration', async () => {
   const fixture =
     createFixture();
 
   try {
     const first =
-      await fixture.dispatcherPool
+      await fixture
+        .dispatcherPool
         .getForProxy(
           'proxy-1',
           {
@@ -70,7 +71,8 @@ test('dispatcher is reused only for the same proxy configuration', async () => {
         );
 
     const second =
-      await fixture.dispatcherPool
+      await fixture
+        .dispatcherPool
         .getForProxy(
           'proxy-1',
           {
@@ -84,11 +86,142 @@ test('dispatcher is reused only for the same proxy configuration', async () => {
     );
 
     assert.equal(
-      fixture.dispatcherPool.size,
+      fixture.dispatcherPool
+        .probeSize,
       1,
     );
   } finally {
-    await fixture.dispatcherPool
+    await fixture
+      .dispatcherPool
+      .closeAll();
+
+    closeDatabase(
+      fixture.database,
+    );
+  }
+});
+
+test('job allocations receive isolated dispatchers even when they reference the same proxy', async () => {
+  const fixture =
+    createFixture();
+
+  try {
+    const first =
+      await fixture
+        .dispatcherPool
+        .getForAllocation({
+          allocationId:
+            'allocation-a',
+
+          jobId:
+            'job-a',
+
+          proxyId:
+            'proxy-1',
+
+          ip:
+            '203.0.113.81',
+
+          port:
+            8080,
+        });
+
+    const second =
+      await fixture
+        .dispatcherPool
+        .getForAllocation({
+          allocationId:
+            'allocation-b',
+
+          jobId:
+            'job-b',
+
+          proxyId:
+            'proxy-1',
+
+          ip:
+            '203.0.113.81',
+
+          port:
+            8080,
+        });
+
+    assert.notEqual(
+      first,
+      second,
+    );
+
+    assert.equal(
+      fixture.dispatcherPool
+        .allocationSize,
+      2,
+    );
+
+    assert.equal(
+      fixture.dispatcherPool
+        .probeSize,
+      0,
+    );
+  } finally {
+    await fixture
+      .dispatcherPool
+      .closeAll();
+
+    closeDatabase(
+      fixture.database,
+    );
+  }
+});
+
+test('allocation dispatcher is reused only by the same allocation', async () => {
+  const fixture =
+    createFixture();
+
+  try {
+    const allocation = {
+      allocationId:
+        'allocation-retry',
+
+      jobId:
+        'job-retry',
+
+      proxyId:
+        'proxy-1',
+
+      ip:
+        '203.0.113.81',
+
+      port:
+        8080,
+    };
+
+    const first =
+      await fixture
+        .dispatcherPool
+        .getForAllocation(
+          allocation,
+        );
+
+    const second =
+      await fixture
+        .dispatcherPool
+        .getForAllocation(
+          allocation,
+        );
+
+    assert.equal(
+      first,
+      second,
+    );
+
+    assert.equal(
+      fixture.dispatcherPool
+        .allocationSize,
+      1,
+    );
+  } finally {
+    await fixture
+      .dispatcherPool
       .closeAll();
 
     closeDatabase(
@@ -104,7 +237,8 @@ test('dispatcher pool never falls back to a direct connection', async () => {
   try {
     await assert.rejects(
       () =>
-        fixture.dispatcherPool
+        fixture
+          .dispatcherPool
           .getForProxy(
             'missing-proxy',
           ),
@@ -115,7 +249,8 @@ test('dispatcher pool never falls back to a direct connection', async () => {
       ),
     );
   } finally {
-    await fixture.dispatcherPool
+    await fixture
+      .dispatcherPool
       .closeAll();
 
     closeDatabase(

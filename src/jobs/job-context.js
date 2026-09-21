@@ -1,0 +1,173 @@
+import {
+  SessionAllocationMismatchError,
+  SessionError,
+} from '../core/errors.js';
+
+function requireObject(
+  value,
+  name,
+) {
+  if (
+    !value
+    || typeof value !== 'object'
+  ) {
+    throw new TypeError(
+      `${name} is required.`,
+    );
+  }
+
+  return value;
+}
+
+export class JobContext {
+  constructor({
+    job,
+    allocation,
+    dispatcher,
+    cookieJar,
+    session,
+  }) {
+    this.job =
+      requireObject(
+        job,
+        'job',
+      );
+
+    this.allocation =
+      requireObject(
+        allocation,
+        'allocation',
+      );
+
+    this.dispatcher =
+      requireObject(
+        dispatcher,
+        'dispatcher',
+      );
+
+    this.cookieJar =
+      requireObject(
+        cookieJar,
+        'cookieJar',
+      );
+
+    this.session =
+      requireObject(
+        session,
+        'session',
+      );
+
+    if (
+      this.allocation.jobId
+      !== this.job.id
+    ) {
+      throw new SessionAllocationMismatchError(
+        'Job context allocation belongs to another job.',
+      );
+    }
+
+    if (
+      this.session.jobId
+      !== this.job.id
+    ) {
+      throw new SessionError(
+        'Session belongs to another job.',
+      );
+    }
+
+    if (
+      this.session.allocationId
+      !== this.allocation.allocationId
+    ) {
+      throw new SessionAllocationMismatchError(
+        'Session allocation does not match job context allocation.',
+      );
+    }
+
+    this.responses = {};
+    this.otp = {};
+    this.documents = [];
+    this.currentStep = null;
+
+    this.retryState = {
+      attempt: 0,
+      lastErrorCode: null,
+    };
+
+    this.result = null;
+  }
+
+  setCurrentStep(stepId) {
+    this.currentStep =
+      stepId ?? null;
+  }
+
+  setResponse(
+    stepId,
+    value,
+  ) {
+    if (
+      typeof stepId !== 'string'
+      || stepId.trim() === ''
+    ) {
+      throw new TypeError(
+        'stepId must be a non-empty string.',
+      );
+    }
+
+    this.responses[
+      stepId.trim()
+    ] = value;
+  }
+
+  getResponse(stepId) {
+    return this.responses[
+      stepId
+    ];
+  }
+
+  setOtp(value) {
+    this.otp =
+      value && typeof value === 'object'
+        ? {
+            ...value,
+          }
+        : {};
+  }
+
+  setDocuments(documents) {
+    if (!Array.isArray(documents)) {
+      throw new TypeError(
+        'documents must be an array.',
+      );
+    }
+
+    this.documents = [
+      ...documents,
+    ];
+  }
+
+  setRetryState({
+    attempt,
+    lastErrorCode = null,
+  }) {
+    if (
+      !Number.isInteger(attempt)
+      || attempt < 0
+    ) {
+      throw new TypeError(
+        'retry attempt must be a non-negative integer.',
+      );
+    }
+
+    this.retryState = {
+      attempt,
+      lastErrorCode,
+    };
+  }
+
+  setResult(result) {
+    this.result =
+      result ?? null;
+  }
+}
