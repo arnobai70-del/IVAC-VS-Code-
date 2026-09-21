@@ -12,9 +12,10 @@ import {
 } from '../src/db/migrations.js';
 
 test('database enables foreign keys', () => {
-  const database = openDatabase({
-    filePath: ':memory:',
-  });
+  const database =
+    openDatabase({
+      filePath: ':memory:',
+    });
 
   try {
     const result =
@@ -32,9 +33,10 @@ test('database enables foreign keys', () => {
 });
 
 test('migrations are idempotent', () => {
-  const database = openDatabase({
-    filePath: ':memory:',
-  });
+  const database =
+    openDatabase({
+      filePath: ':memory:',
+    });
 
   try {
     migrateDatabase(database);
@@ -43,21 +45,30 @@ test('migrations are idempotent', () => {
     const migrations =
       getAppliedMigrations(database);
 
-    assert.equal(migrations.length, 1);
-    assert.equal(migrations[0].version, 1);
     assert.equal(
-      migrations[0].name,
-      'create_jobs_and_claims',
+      migrations.length,
+      2,
+    );
+
+    assert.equal(
+      migrations.at(-1).version,
+      2,
+    );
+
+    assert.equal(
+      migrations.at(-1).name,
+      'create_proxy_pool_and_ip_allocations',
     );
   } finally {
     closeDatabase(database);
   }
 });
 
-test('migration creates jobs and claims tables', () => {
-  const database = openDatabase({
-    filePath: ':memory:',
-  });
+test('migrations create durable job and network tables', () => {
+  const database =
+    openDatabase({
+      filePath: ':memory:',
+    });
 
   try {
     migrateDatabase(database);
@@ -71,6 +82,8 @@ test('migration creates jobs and claims tables', () => {
           AND name IN (
             'jobs',
             'claims',
+            'proxies',
+            'ip_allocations',
             'schema_migrations'
           )
         ORDER BY name
@@ -78,10 +91,14 @@ test('migration creates jobs and claims tables', () => {
       .all();
 
     assert.deepEqual(
-      rows.map((row) => row.name),
+      rows.map(
+        (row) => row.name,
+      ),
       [
         'claims',
+        'ip_allocations',
         'jobs',
+        'proxies',
         'schema_migrations',
       ],
     );

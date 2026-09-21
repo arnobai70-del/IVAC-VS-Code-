@@ -194,6 +194,14 @@ export function getSafeConfigSummary(config) {
       busyTimeoutMs: config.database.busyTimeoutMs,
     },
 
+    network: {
+      proxyConfigFile: config.network.proxyConfigFile,
+      healthCheckConfigured:
+        Boolean(config.network.healthCheckUrl),
+      healthTimeoutMs: config.network.healthTimeoutMs,
+      cooldownMs: config.network.cooldownMs,
+    },
+
     portal: {
       baseUrl: config.portal.baseUrl,
       pendingPath: config.portal.pendingPath,

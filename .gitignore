@@ -9,6 +9,9 @@ node_modules/
 # Keep the public environment template
 !.env.example
 
+# Private proxy inventory / credentials
+config/proxies.json
+
 # Runtime databases
 data/*.db
 data/*.db-*

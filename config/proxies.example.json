@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "proxies": [
+    {
+      "id": "worker-001",
+      "ip": "203.0.113.10",
+      "port": 8080,
+      "protocol": "http",
+      "enabled": true,
+      "username": "",
+      "password": "",
+      "label": "example-only"
+    }
+  ]
+}

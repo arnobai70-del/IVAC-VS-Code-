@@ -72,6 +72,13 @@ export const appConfigSchema = z.object({
     busyTimeoutMs: z.number().int().min(100).max(120_000),
   }),
 
+  network: z.object({
+    proxyConfigFile: z.string().trim().min(1),
+    healthCheckUrl: z.string().url().nullable(),
+    healthTimeoutMs: z.number().int().min(250).max(120_000),
+    cooldownMs: z.number().int().min(1_000).max(3_600_000),
+  }),
+
   portal: z.object({
     baseUrl: z.string().url(),
     pendingPath: pathSchema,

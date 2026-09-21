@@ -5,9 +5,12 @@ export const ERROR_CODES = Object.freeze({
   JOB_CONFLICT: 'JOB_CONFLICT',
   INVALID_JOB_TRANSITION: 'INVALID_JOB_TRANSITION',
 
+  PROXY_CONFIG_ERROR: 'PROXY_CONFIG_ERROR',
+  PROXY_NOT_FOUND: 'PROXY_NOT_FOUND',
+  PROXY_UNAVAILABLE: 'PROXY_UNAVAILABLE',
+
   PORTAL_AUTH_ERROR: 'PORTAL_AUTH_ERROR',
   PORTAL_NETWORK_ERROR: 'PORTAL_NETWORK_ERROR',
-  PROXY_UNAVAILABLE: 'PROXY_UNAVAILABLE',
   NETWORK_TIMEOUT: 'NETWORK_TIMEOUT',
   HTTP_429: 'HTTP_429',
   REMOTE_5XX: 'REMOTE_5XX',
@@ -82,7 +85,8 @@ export class JobConflictError extends AppError {
     super(message, {
       ...options,
       code: ERROR_CODES.JOB_CONFLICT,
-      retryable: true,
+      retryable:
+        options.retryable ?? true,
     });
   }
 }
@@ -100,6 +104,52 @@ export class InvalidJobTransitionError extends AppError {
 
     this.fromState = fromState;
     this.toState = toState;
+  }
+}
+
+export class ProxyConfigurationError extends AppError {
+  constructor(message, options = {}) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.PROXY_CONFIG_ERROR,
+      retryable: false,
+    });
+  }
+}
+
+export class ProxyNotFoundError extends AppError {
+  constructor(proxyId, options = {}) {
+    super(
+      `Proxy not found: ${proxyId}`,
+      {
+        ...options,
+        code: ERROR_CODES.PROXY_NOT_FOUND,
+        retryable: false,
+      },
+    );
+  }
+}
+
+export class ProxyUnavailableError extends AppError {
+  constructor(
+    message = 'No healthy execution proxy is available.',
+    options = {},
+  ) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.PROXY_UNAVAILABLE,
+      retryable: true,
+    });
+  }
+}
+
+export class NetworkTimeoutError extends AppError {
+  constructor(message = 'Network operation timed out.', options = {}) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.NETWORK_TIMEOUT,
+      retryable: true,
+    });
   }
 }
 

@@ -29,6 +29,14 @@ import {
   migrateDatabase,
 } from './db/migrations.js';
 
+import {
+  loadProxyConfig,
+} from './network/proxy-config.js';
+
+import {
+  ProxyPool,
+} from './network/proxy-pool.js';
+
 export async function main() {
   const config = loadConfig();
 
@@ -39,7 +47,8 @@ export async function main() {
 
   logger.info(
     {
-      config: getSafeConfigSummary(config),
+      config:
+        getSafeConfigSummary(config),
     },
     'Configuration loaded successfully.',
   );
@@ -51,28 +60,68 @@ export async function main() {
 
   const database = openDatabase({
     filePath: databasePath,
-    busyTimeoutMs: config.database.busyTimeoutMs,
+    busyTimeoutMs:
+      config.database.busyTimeoutMs,
   });
 
   try {
-    const migrations = migrateDatabase(database);
+    const migrations =
+      migrateDatabase(database);
 
     logger.info(
       {
         database: {
           file: config.database.file,
-          migrationCount: migrations.length,
+          migrationCount:
+            migrations.length,
           latestMigration:
-            migrations.at(-1)?.version ?? null,
+            migrations.at(-1)?.version
+            ?? null,
         },
       },
       'Database initialized successfully.',
     );
 
+    const proxyConfigPath =
+      resolve(
+        PROJECT_ROOT,
+        config.network.proxyConfigFile,
+      );
+
+    const proxyConfig =
+      loadProxyConfig({
+        filePath: proxyConfigPath,
+        required: false,
+      });
+
+    const proxyPool =
+      new ProxyPool(database);
+
+    const proxies =
+      proxyPool.syncFromConfig(
+        proxyConfig.proxies,
+      );
+
     logger.info(
       {
-        phase: 2,
-        environment: config.app.environment,
+        proxyPool: {
+          configPresent:
+            proxyConfig.sourceExists,
+          total:
+            proxies.length,
+          healthyAvailable:
+            proxyPool
+              .countHealthyAvailable(),
+        },
+      },
+      'Proxy pool synchronized.',
+    );
+
+    logger.info(
+      {
+        phase: 3,
+        environment:
+          config.app.environment,
       },
       'Application bootstrap verified.',
     );
@@ -88,7 +137,9 @@ function isDirectExecution() {
 
   return (
     resolve(process.argv[1])
-    === resolve(fileURLToPath(import.meta.url))
+    === resolve(
+      fileURLToPath(import.meta.url),
+    )
   );
 }
 
@@ -98,7 +149,8 @@ if (isDirectExecution()) {
 
     logger.fatal(
       {
-        error: serializeError(error),
+        error:
+          serializeError(error),
       },
       'Application startup failed.',
     );

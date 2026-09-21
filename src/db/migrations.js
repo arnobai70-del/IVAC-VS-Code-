@@ -81,6 +81,165 @@ const MIGRATIONS = Object.freeze([
       `);
     },
   },
+
+  {
+    version: 2,
+    name: 'create_proxy_pool_and_ip_allocations',
+
+    up(database) {
+      database.exec(`
+        CREATE TABLE proxies (
+          id TEXT PRIMARY KEY,
+
+          ip TEXT NOT NULL,
+          port INTEGER NOT NULL
+            CHECK (
+              port >= 1
+              AND port <= 65535
+            ),
+
+          protocol TEXT NOT NULL
+            CHECK (
+              protocol IN (
+                'http',
+                'https'
+              )
+            ),
+
+          label TEXT,
+
+          enabled INTEGER NOT NULL DEFAULT 1
+            CHECK (
+              enabled IN (
+                0,
+                1
+              )
+            ),
+
+          status TEXT NOT NULL
+            CHECK (
+              status IN (
+                'AVAILABLE',
+                'RESERVED',
+                'ACTIVE',
+                'RETRY_RESERVED',
+                'COOLDOWN',
+                'DISABLED',
+                'RELEASING'
+              )
+            ),
+
+          last_health_ok INTEGER NOT NULL DEFAULT 0
+            CHECK (
+              last_health_ok IN (
+                0,
+                1
+              )
+            ),
+
+          last_health_at TEXT,
+          latency_ms INTEGER,
+
+          success_count INTEGER NOT NULL DEFAULT 0
+            CHECK (
+              success_count >= 0
+            ),
+
+          failure_count INTEGER NOT NULL DEFAULT 0
+            CHECK (
+              failure_count >= 0
+            ),
+
+          cooldown_until TEXT,
+          last_error TEXT,
+
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+
+          UNIQUE (
+            ip,
+            port
+          )
+        );
+
+        CREATE INDEX idx_proxies_status
+          ON proxies(
+            enabled,
+            status,
+            last_health_ok
+          );
+
+        CREATE TABLE ip_allocations (
+          id TEXT PRIMARY KEY,
+
+          job_id TEXT NOT NULL,
+          user_id TEXT,
+          proxy_id TEXT NOT NULL,
+
+          ip TEXT NOT NULL,
+          port INTEGER NOT NULL,
+
+          status TEXT NOT NULL
+            CHECK (
+              status IN (
+                'RESERVED',
+                'ACTIVE',
+                'RETRY_RESERVED',
+                'RELEASING',
+                'RELEASED'
+              )
+            ),
+
+          allocated_at TEXT NOT NULL,
+          activated_at TEXT,
+          last_heartbeat TEXT,
+
+          released_at TEXT,
+          release_reason TEXT,
+
+          failure_count INTEGER NOT NULL DEFAULT 0
+            CHECK (
+              failure_count >= 0
+            ),
+
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+
+          FOREIGN KEY (job_id)
+            REFERENCES jobs(id)
+            ON DELETE RESTRICT,
+
+          FOREIGN KEY (proxy_id)
+            REFERENCES proxies(id)
+            ON DELETE RESTRICT
+        );
+
+        CREATE INDEX idx_ip_allocations_job
+          ON ip_allocations(job_id);
+
+        CREATE INDEX idx_ip_allocations_proxy
+          ON ip_allocations(proxy_id);
+
+        CREATE UNIQUE INDEX uq_live_allocation_proxy
+          ON ip_allocations(proxy_id)
+          WHERE status IN (
+            'RESERVED',
+            'ACTIVE',
+            'RETRY_RESERVED',
+            'RELEASING'
+          );
+
+        CREATE UNIQUE INDEX uq_live_allocation_job
+          ON ip_allocations(job_id)
+          WHERE status IN (
+            'RESERVED',
+            'ACTIVE',
+            'RETRY_RESERVED',
+            'RELEASING'
+          );
+      `);
+    },
+  },
 ]);
 
 function ensureMigrationTable(database) {

@@ -12,6 +12,12 @@
     "file": "data/ivac.sqlite3",
     "busyTimeoutMs": 5000
   },
+  "network": {
+    "proxyConfigFile": "config/proxies.json",
+    "healthCheckUrl": null,
+    "healthTimeoutMs": 5000,
+    "cooldownMs": 30000
+  },
   "portal": {
     "baseUrl": "https://mrboss.live",
     "pendingPath": "/api/application/pending",
