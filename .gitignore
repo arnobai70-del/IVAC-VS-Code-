@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Environment secrets
+.env
+.env.local
+.env.*.local
+
+# Keep the public environment template
+!.env.example
+
+# Runtime databases
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite-*
+data/*.sqlite3
+data/*.sqlite3-*
+
+# Logs and private runtime output
+logs/
+results/
+tmp/
+temp/
+
+# Test / coverage output
+coverage/
+.nyc_output/
+
+# Local editor settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

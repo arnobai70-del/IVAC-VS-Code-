@@ -1,0 +1,30 @@
+{
+  "app": {
+    "name": "ivac-automation",
+    "environment": "development"
+  },
+  "runtime": {
+    "concurrency": 2,
+    "jobsPerCycle": 2,
+    "requestDelayMs": 250
+  },
+  "portal": {
+    "baseUrl": "https://mrboss.live",
+    "pendingPath": "/api/application/pending",
+    "healthPath": null,
+    "timeoutMs": 10000
+  },
+  "otp": {
+    "baseUrl": "https://otp.cat-paymentbd.com",
+    "tablePath": "/otp_table",
+    "pollIntervalMs": 3000,
+    "timeoutMs": 120000
+  },
+  "target": {
+    "baseUrl": "https://api.ivacbd.com/iams/api/v1",
+    "timeoutMs": 15000
+  },
+  "logging": {
+    "level": "info"
+  }
+}
