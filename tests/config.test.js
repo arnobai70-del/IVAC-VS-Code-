@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -82,6 +83,42 @@ test('project app.json passes configuration validation', () => {
   assert.equal(
     config.workflow.maxSteps,
     100,
+  );
+});
+
+test('dashboard configuration defaults to disabled loopback-only operation', () => {
+  const config =
+    loadConfig({
+      configPath:
+        DEFAULT_CONFIG_PATH,
+
+      env: {},
+
+      loadEnvFile:
+        false,
+    });
+
+  assert.deepEqual(
+    config.dashboard,
+    {
+      enabled: false,
+      host: '127.0.0.1',
+      port: 8787,
+    },
+  );
+
+  const safeSummary =
+    getSafeConfigSummary(
+      config,
+    );
+
+  assert.deepEqual(
+    safeSummary.dashboard,
+    {
+      enabled: false,
+      host: '127.0.0.1',
+      port: 8787,
+    },
   );
 });
 
@@ -168,6 +205,100 @@ test('environment overrides are loaded without exposing the token in safe summar
     assert.equal(
       safeSummary.workflow.file,
       'config/workflow.json',
+    );
+
+    assert.deepEqual(
+      safeSummary.dashboard,
+      {
+        enabled: false,
+        host: '127.0.0.1',
+        port: 8787,
+      },
+    );
+  } finally {
+    rmSync(
+      temporaryDirectory,
+      {
+        recursive: true,
+        force: true,
+      },
+    );
+  }
+});
+
+test('dashboard rejects non-loopback bind addresses', () => {
+  const temporaryDirectory =
+    mkdtempSync(
+      join(
+        tmpdir(),
+        'ivac-config-test-',
+      ),
+    );
+
+  const configFile =
+    join(
+      temporaryDirectory,
+      'app.json',
+    );
+
+  const sourceConfig =
+    JSON.parse(
+      readFileSync(
+        DEFAULT_CONFIG_PATH,
+        'utf8',
+      ),
+    );
+
+  const invalidConfig = {
+    ...sourceConfig,
+
+    dashboard: {
+      enabled: true,
+      host: '0.0.0.0',
+      port: 8787,
+    },
+  };
+
+  writeFileSync(
+    configFile,
+    JSON.stringify(
+      invalidConfig,
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  try {
+    assert.throws(
+      () => {
+        loadConfig({
+          configPath:
+            configFile,
+
+          env: {},
+
+          loadEnvFile:
+            false,
+        });
+      },
+
+      (error) => {
+        assert.ok(
+          error instanceof ConfigError,
+        );
+
+        assert.equal(
+          JSON.stringify(
+            error.details,
+          ).includes(
+            'dashboard.host',
+          ),
+          true,
+        );
+
+        return true;
+      },
     );
   } finally {
     rmSync(

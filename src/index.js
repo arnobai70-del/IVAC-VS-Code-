@@ -21,6 +21,14 @@ import {
 } from './core/logger.js';
 
 import {
+  DashboardHttpServer,
+} from './dashboard/http-server.js';
+
+import {
+  OperationalService,
+} from './dashboard/operational-service.js';
+
+import {
   closeDatabase,
   openDatabase,
 } from './db/database.js';
@@ -28,6 +36,14 @@ import {
 import {
   migrateDatabase,
 } from './db/migrations.js';
+
+import {
+  JobStore,
+} from './jobs/job-store.js';
+
+import {
+  IpAllocator,
+} from './network/ip-allocator.js';
 
 import {
   loadProxyConfig,
@@ -44,6 +60,10 @@ import {
 import {
   PortalResultClient,
 } from './portal/portal-result-client.js';
+
+import {
+  FinalResultStore,
+} from './results/final-result-store.js';
 
 import {
   loadWorkflowDefinition,
@@ -123,6 +143,9 @@ export async function main() {
         config.database
           .busyTimeoutMs,
     });
+
+  let keepDatabaseOpen =
+    false;
 
   try {
     const migrations =
@@ -339,21 +362,172 @@ export async function main() {
       'Workflow engine safety boundaries configured.',
     );
 
+    if (
+      config.dashboard.enabled
+    ) {
+      const jobStore =
+        new JobStore(
+          database,
+        );
+
+      const ipAllocator =
+        new IpAllocator(
+          database,
+        );
+
+      const finalResultStore =
+        new FinalResultStore(
+          database,
+        );
+
+      const operationalService =
+        new OperationalService({
+          jobStore,
+          ipAllocator,
+          proxyPool,
+          finalResultStore,
+
+          readinessProvider:
+            async () => {
+              const health =
+                await portalClient
+                  .healthCheck();
+
+              const capacity =
+                proxyPool
+                  .countHealthyAvailable();
+
+              const portalReady =
+                health.safeToConsume
+                === true;
+
+              const hasCapacity =
+                typeof capacity
+                  === 'number'
+                && capacity > 0;
+
+              let reason =
+                'READY';
+
+              if (
+                !portalReady
+              ) {
+                reason =
+                  'PORTAL_NOT_READY';
+              } else if (
+                !hasCapacity
+              ) {
+                reason =
+                  'NO_HEALTHY_PROXY_CAPACITY';
+              }
+
+              return {
+                ready:
+                  portalReady
+                  && hasCapacity,
+
+                reason,
+
+                capacity,
+
+                checkedAt:
+                  new Date()
+                    .toISOString(),
+              };
+            },
+        });
+
+      const dashboardServer =
+        new DashboardHttpServer({
+          operationalService,
+
+          host:
+            config.dashboard
+              .host,
+
+          port:
+            config.dashboard
+              .port,
+
+          logger,
+        });
+
+      const dashboardAddress =
+        await dashboardServer
+          .start();
+
+      keepDatabaseOpen =
+        true;
+
+      logger.info(
+        {
+          dashboard: {
+            enabled:
+              true,
+
+            host:
+              config.dashboard
+                .host,
+
+            port:
+              dashboardAddress
+                ?.port
+              ?? config.dashboard
+                .port,
+
+            readOnly:
+              true,
+
+            loopbackOnly:
+              true,
+
+            mutationEndpoints:
+              false,
+          },
+        },
+        'Operational dashboard API enabled.',
+      );
+    } else {
+      logger.info(
+        {
+          dashboard: {
+            enabled:
+              false,
+
+            readOnly:
+              true,
+
+            loopbackOnly:
+              true,
+          },
+        },
+        'Operational dashboard API is disabled.',
+      );
+    }
+
     logger.info(
       {
         phase:
-          9,
+          10,
 
         environment:
           config.app
             .environment,
+
+        dashboardEnabled:
+          config.dashboard
+            .enabled,
       },
       'Application bootstrap verified.',
     );
   } finally {
-    closeDatabase(
-      database,
-    );
+    if (
+      !keepDatabaseOpen
+    ) {
+      closeDatabase(
+        database,
+      );
+    }
   }
 }
 

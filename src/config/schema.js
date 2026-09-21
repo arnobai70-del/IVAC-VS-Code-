@@ -382,6 +382,31 @@ const workflowRuntimeSchema =
         .max(1000),
   });
 
+const dashboardSchema =
+  z.object({
+    enabled:
+      z.boolean()
+        .default(false),
+
+    host:
+      z.enum([
+        '127.0.0.1',
+        '::1',
+        'localhost',
+      ])
+        .default(
+          '127.0.0.1',
+        ),
+
+    port:
+      z.number()
+        .int()
+        .min(1)
+        .max(65_535)
+        .default(8787),
+  })
+    .default({});
+
 export const appConfigSchema =
   z.object({
     app:
@@ -479,6 +504,9 @@ export const appConfigSchema =
 
     workflow:
       workflowRuntimeSchema,
+
+    dashboard:
+      dashboardSchema,
 
     logging:
       z.object({

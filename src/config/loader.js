@@ -396,6 +396,20 @@ export function getSafeConfigSummary(
           .maxSteps,
     },
 
+    dashboard: {
+      enabled:
+        config.dashboard
+          .enabled,
+
+      host:
+        config.dashboard
+          .host,
+
+      port:
+        config.dashboard
+          .port,
+    },
+
     logging:
       config.logging,
 
