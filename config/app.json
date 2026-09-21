@@ -8,6 +8,10 @@
     "jobsPerCycle": 2,
     "requestDelayMs": 250
   },
+  "database": {
+    "file": "data/ivac.sqlite3",
+    "busyTimeoutMs": 5000
+  },
   "portal": {
     "baseUrl": "https://mrboss.live",
     "pendingPath": "/api/application/pending",

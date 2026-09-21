@@ -67,6 +67,11 @@ export const appConfigSchema = z.object({
     requestDelayMs: z.number().int().min(0).max(60_000),
   }),
 
+  database: z.object({
+    file: z.string().trim().min(1),
+    busyTimeoutMs: z.number().int().min(100).max(120_000),
+  }),
+
   portal: z.object({
     baseUrl: z.string().url(),
     pendingPath: pathSchema,

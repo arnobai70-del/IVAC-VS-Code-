@@ -9,6 +9,7 @@ import {
 import {
   getSafeConfigSummary,
   loadConfig,
+  PROJECT_ROOT,
 } from './config/loader.js';
 
 import {
@@ -18,6 +19,15 @@ import {
 import {
   createLogger,
 } from './core/logger.js';
+
+import {
+  closeDatabase,
+  openDatabase,
+} from './db/database.js';
+
+import {
+  migrateDatabase,
+} from './db/migrations.js';
 
 export async function main() {
   const config = loadConfig();
@@ -34,13 +44,41 @@ export async function main() {
     'Configuration loaded successfully.',
   );
 
-  logger.info(
-    {
-      phase: 1,
-      environment: config.app.environment,
-    },
-    'Application bootstrap verified.',
+  const databasePath = resolve(
+    PROJECT_ROOT,
+    config.database.file,
   );
+
+  const database = openDatabase({
+    filePath: databasePath,
+    busyTimeoutMs: config.database.busyTimeoutMs,
+  });
+
+  try {
+    const migrations = migrateDatabase(database);
+
+    logger.info(
+      {
+        database: {
+          file: config.database.file,
+          migrationCount: migrations.length,
+          latestMigration:
+            migrations.at(-1)?.version ?? null,
+        },
+      },
+      'Database initialized successfully.',
+    );
+
+    logger.info(
+      {
+        phase: 2,
+        environment: config.app.environment,
+      },
+      'Application bootstrap verified.',
+    );
+  } finally {
+    closeDatabase(database);
+  }
 }
 
 function isDirectExecution() {

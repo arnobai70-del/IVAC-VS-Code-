@@ -1,5 +1,10 @@
 export const ERROR_CODES = Object.freeze({
   CONFIG_ERROR: 'CONFIG_ERROR',
+  DATABASE_ERROR: 'DATABASE_ERROR',
+  JOB_NOT_FOUND: 'JOB_NOT_FOUND',
+  JOB_CONFLICT: 'JOB_CONFLICT',
+  INVALID_JOB_TRANSITION: 'INVALID_JOB_TRANSITION',
+
   PORTAL_AUTH_ERROR: 'PORTAL_AUTH_ERROR',
   PORTAL_NETWORK_ERROR: 'PORTAL_NETWORK_ERROR',
   PROXY_UNAVAILABLE: 'PROXY_UNAVAILABLE',
@@ -46,6 +51,55 @@ export class ConfigError extends AppError {
       code: ERROR_CODES.CONFIG_ERROR,
       retryable: false,
     });
+  }
+}
+
+export class DatabaseError extends AppError {
+  constructor(message, options = {}) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.DATABASE_ERROR,
+      retryable: false,
+    });
+  }
+}
+
+export class JobNotFoundError extends AppError {
+  constructor(jobId, options = {}) {
+    super(
+      `Job not found: ${jobId}`,
+      {
+        ...options,
+        code: ERROR_CODES.JOB_NOT_FOUND,
+        retryable: false,
+      },
+    );
+  }
+}
+
+export class JobConflictError extends AppError {
+  constructor(message, options = {}) {
+    super(message, {
+      ...options,
+      code: ERROR_CODES.JOB_CONFLICT,
+      retryable: true,
+    });
+  }
+}
+
+export class InvalidJobTransitionError extends AppError {
+  constructor(fromState, toState, options = {}) {
+    super(
+      `Invalid job state transition: ${fromState} -> ${toState}`,
+      {
+        ...options,
+        code: ERROR_CODES.INVALID_JOB_TRANSITION,
+        retryable: false,
+      },
+    );
+
+    this.fromState = fromState;
+    this.toState = toState;
   }
 }
 

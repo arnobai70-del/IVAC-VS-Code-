@@ -189,6 +189,11 @@ export function getSafeConfigSummary(config) {
     app: config.app,
     runtime: config.runtime,
 
+    database: {
+      file: config.database.file,
+      busyTimeoutMs: config.database.busyTimeoutMs,
+    },
+
     portal: {
       baseUrl: config.portal.baseUrl,
       pendingPath: config.portal.pendingPath,
