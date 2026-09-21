@@ -75,13 +75,13 @@ test('project app.json passes configuration validation', () => {
   );
 
   assert.equal(
-    config.otp.columns.code,
-    'OTP',
+    config.workflow.file,
+    'config/workflow.json',
   );
 
   assert.equal(
-    config.otp.columns.createdAt,
-    'Created At',
+    config.workflow.maxSteps,
+    100,
   );
 });
 
@@ -163,6 +163,11 @@ test('environment overrides are loaded without exposing the token in safe summar
         'test-secret-token',
       ),
       false,
+    );
+
+    assert.equal(
+      safeSummary.workflow.file,
+      'config/workflow.json',
     );
   } finally {
     rmSync(
@@ -304,6 +309,14 @@ test('invalid concurrency is rejected', () => {
 
       timeoutMs:
         15000,
+    },
+
+    workflow: {
+      file:
+        'config/workflow.json',
+
+      maxSteps:
+        100,
     },
 
     logging: {

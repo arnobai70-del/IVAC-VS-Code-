@@ -51,6 +51,10 @@
     "baseUrl": "https://api.ivacbd.com/iams/api/v1",
     "timeoutMs": 15000
   },
+  "workflow": {
+    "file": "config/workflow.json",
+    "maxSteps": 100
+  },
   "logging": {
     "level": "info"
   }

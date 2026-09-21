@@ -19,6 +19,51 @@ function requireObject(
   return value;
 }
 
+function deepFreeze(
+  value,
+) {
+  if (
+    value === null
+    || typeof value !== 'object'
+    || Object.isFrozen(value)
+  ) {
+    return value;
+  }
+
+  for (
+    const child
+    of Object.values(value)
+  ) {
+    deepFreeze(child);
+  }
+
+  return Object.freeze(value);
+}
+
+function cloneInput(
+  input,
+) {
+  if (
+    input === null
+    || input === undefined
+  ) {
+    return {};
+  }
+
+  if (
+    typeof input !== 'object'
+    || Array.isArray(input)
+  ) {
+    throw new TypeError(
+      'job input must be an object.',
+    );
+  }
+
+  return structuredClone(
+    input,
+  );
+}
+
 export class JobContext {
   constructor({
     job,
@@ -26,6 +71,7 @@ export class JobContext {
     dispatcher,
     cookieJar,
     session,
+    input = {},
   }) {
     this.job =
       requireObject(
@@ -77,12 +123,20 @@ export class JobContext {
 
     if (
       this.session.allocationId
-      !== this.allocation.allocationId
+      !== this.allocation
+        .allocationId
     ) {
       throw new SessionAllocationMismatchError(
         'Session allocation does not match job context allocation.',
       );
     }
+
+    this.input =
+      deepFreeze(
+        cloneInput(
+          input,
+        ),
+      );
 
     this.responses = {};
 
@@ -105,7 +159,9 @@ export class JobContext {
       null;
   }
 
-  setCurrentStep(stepId) {
+  setCurrentStep(
+    stepId,
+  ) {
     this.currentStep =
       stepId ?? null;
   }
@@ -128,13 +184,17 @@ export class JobContext {
     ] = value;
   }
 
-  getResponse(stepId) {
+  getResponse(
+    stepId,
+  ) {
     return this.responses[
       stepId
     ];
   }
 
-  setOtpWatch(watch) {
+  setOtpWatch(
+    watch,
+  ) {
     if (
       !watch
       || typeof watch !== 'object'
@@ -153,7 +213,8 @@ export class JobContext {
       ...watch,
 
       baselineFingerprints: [
-        ...watch.baselineFingerprints,
+        ...watch
+          .baselineFingerprints,
       ],
     };
   }
@@ -163,7 +224,9 @@ export class JobContext {
       null;
   }
 
-  setOtp(value) {
+  setOtp(
+    value,
+  ) {
     this.otp =
       value
       && typeof value === 'object'
@@ -177,8 +240,14 @@ export class JobContext {
     this.otp = {};
   }
 
-  setDocuments(documents) {
-    if (!Array.isArray(documents)) {
+  setDocuments(
+    documents,
+  ) {
+    if (
+      !Array.isArray(
+        documents,
+      )
+    ) {
       throw new TypeError(
         'documents must be an array.',
       );
@@ -194,7 +263,9 @@ export class JobContext {
     lastErrorCode = null,
   }) {
     if (
-      !Number.isInteger(attempt)
+      !Number.isInteger(
+        attempt,
+      )
       || attempt < 0
     ) {
       throw new TypeError(
@@ -208,7 +279,9 @@ export class JobContext {
     };
   }
 
-  setResult(result) {
+  setResult(
+    result,
+  ) {
     this.result =
       result ?? null;
   }

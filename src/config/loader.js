@@ -51,7 +51,9 @@ export const DEFAULT_ENV_PATH =
     '.env.local',
   );
 
-function readJsonFile(filePath) {
+function readJsonFile(
+  filePath,
+) {
   let raw;
 
   try {
@@ -104,7 +106,9 @@ function readEnvironmentFile(
   }
 }
 
-function deepFreeze(value) {
+function deepFreeze(
+  value,
+) {
   if (
     value === null
     || typeof value !== 'object'
@@ -305,10 +309,6 @@ export function getSafeConfigSummary(
           .maxResponseBytes,
     },
 
-    /*
-     * Deliberately not named "otp".
-     * The logger treats "otp" as a secret-bearing field and redacts it.
-     */
     otpConfig: {
       baseUrl:
         config.otp.baseUrl,
@@ -330,7 +330,8 @@ export function getSafeConfigSummary(
         config.otp.maxRows,
 
       tableSelector:
-        config.otp.tableSelector,
+        config.otp
+          .tableSelector,
 
       columns:
         config.otp.columns,
@@ -342,6 +343,14 @@ export function getSafeConfigSummary(
 
       timeoutMs:
         config.target.timeoutMs,
+    },
+
+    workflow: {
+      file:
+        config.workflow.file,
+
+      maxSteps:
+        config.workflow.maxSteps,
     },
 
     logging:

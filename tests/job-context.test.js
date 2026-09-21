@@ -170,3 +170,79 @@ test('job context rejects allocation from another job', () => {
     ),
   );
 });
+
+test('job context clones and freezes per-job workflow input', () => {
+  const fixture =
+    createFixture();
+
+  const sourceInput = {
+    phone:
+      '01700000000',
+
+    credentials: {
+      password:
+        'secret',
+    },
+
+    documents: [
+      {
+        id:
+          'document-1',
+      },
+    ],
+  };
+
+  const context =
+    new JobContext({
+      ...fixture,
+
+      input:
+        sourceInput,
+    });
+
+  sourceInput.credentials.password =
+    'changed-outside';
+
+  sourceInput.documents[0].id =
+    'changed-document';
+
+  assert.equal(
+    context.input
+      .credentials.password,
+    'secret',
+  );
+
+  assert.equal(
+    context.input
+      .documents[0].id,
+    'document-1',
+  );
+
+  assert.equal(
+    Object.isFrozen(
+      context.input,
+    ),
+    true,
+  );
+
+  assert.equal(
+    Object.isFrozen(
+      context.input.credentials,
+    ),
+    true,
+  );
+
+  assert.equal(
+    Object.isFrozen(
+      context.input.documents,
+    ),
+    true,
+  );
+
+  assert.equal(
+    Object.isFrozen(
+      context.input.documents[0],
+    ),
+    true,
+  );
+});

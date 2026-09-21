@@ -1,74 +1,92 @@
-export const ERROR_CODES = Object.freeze({
-  CONFIG_ERROR: 'CONFIG_ERROR',
-  DATABASE_ERROR: 'DATABASE_ERROR',
+export const ERROR_CODES =
+  Object.freeze({
+    CONFIG_ERROR:
+      'CONFIG_ERROR',
 
-  JOB_NOT_FOUND: 'JOB_NOT_FOUND',
-  JOB_CONFLICT: 'JOB_CONFLICT',
-  INVALID_JOB_TRANSITION:
-    'INVALID_JOB_TRANSITION',
+    DATABASE_ERROR:
+      'DATABASE_ERROR',
 
-  PROXY_CONFIG_ERROR:
-    'PROXY_CONFIG_ERROR',
+    JOB_NOT_FOUND:
+      'JOB_NOT_FOUND',
 
-  PROXY_NOT_FOUND:
-    'PROXY_NOT_FOUND',
+    JOB_CONFLICT:
+      'JOB_CONFLICT',
 
-  PROXY_UNAVAILABLE:
-    'PROXY_UNAVAILABLE',
+    INVALID_JOB_TRANSITION:
+      'INVALID_JOB_TRANSITION',
 
-  PORTAL_AUTH_ERROR:
-    'PORTAL_AUTH_ERROR',
+    PROXY_CONFIG_ERROR:
+      'PROXY_CONFIG_ERROR',
 
-  PORTAL_NETWORK_ERROR:
-    'PORTAL_NETWORK_ERROR',
+    PROXY_NOT_FOUND:
+      'PROXY_NOT_FOUND',
 
-  PORTAL_RESPONSE_ERROR:
-    'PORTAL_RESPONSE_ERROR',
+    PROXY_UNAVAILABLE:
+      'PROXY_UNAVAILABLE',
 
-  NETWORK_TIMEOUT:
-    'NETWORK_TIMEOUT',
+    PORTAL_AUTH_ERROR:
+      'PORTAL_AUTH_ERROR',
 
-  HTTP_429:
-    'HTTP_429',
+    PORTAL_NETWORK_ERROR:
+      'PORTAL_NETWORK_ERROR',
 
-  REMOTE_5XX:
-    'REMOTE_5XX',
+    PORTAL_RESPONSE_ERROR:
+      'PORTAL_RESPONSE_ERROR',
 
-  SESSION_ERROR:
-    'SESSION_ERROR',
+    NETWORK_TIMEOUT:
+      'NETWORK_TIMEOUT',
 
-  SESSION_CLOSED:
-    'SESSION_CLOSED',
+    HTTP_429:
+      'HTTP_429',
 
-  SESSION_ALLOCATION_MISMATCH:
-    'SESSION_ALLOCATION_MISMATCH',
+    REMOTE_5XX:
+      'REMOTE_5XX',
 
-  OTP_TIMEOUT:
-    'OTP_TIMEOUT',
+    SESSION_ERROR:
+      'SESSION_ERROR',
 
-  OTP_RESPONSE_ERROR:
-    'OTP_RESPONSE_ERROR',
+    SESSION_CLOSED:
+      'SESSION_CLOSED',
 
-  UPLOAD_ERROR:
-    'UPLOAD_ERROR',
+    SESSION_ALLOCATION_MISMATCH:
+      'SESSION_ALLOCATION_MISMATCH',
 
-  INVALID_RESPONSE:
-    'INVALID_RESPONSE',
+    OTP_TIMEOUT:
+      'OTP_TIMEOUT',
 
-  REMOTE_REJECTION:
-    'REMOTE_REJECTION',
+    OTP_RESPONSE_ERROR:
+      'OTP_RESPONSE_ERROR',
 
-  MANUAL_CHALLENGE_REQUIRED:
-    'MANUAL_CHALLENGE_REQUIRED',
+    WORKFLOW_CONFIG_ERROR:
+      'WORKFLOW_CONFIG_ERROR',
 
-  JOB_CANCELLED:
-    'JOB_CANCELLED',
+    WORKFLOW_TEMPLATE_ERROR:
+      'WORKFLOW_TEMPLATE_ERROR',
 
-  UNKNOWN_ERROR:
-    'UNKNOWN_ERROR',
-});
+    WORKFLOW_STEP_ERROR:
+      'WORKFLOW_STEP_ERROR',
 
-export class AppError extends Error {
+    UPLOAD_ERROR:
+      'UPLOAD_ERROR',
+
+    INVALID_RESPONSE:
+      'INVALID_RESPONSE',
+
+    REMOTE_REJECTION:
+      'REMOTE_REJECTION',
+
+    MANUAL_CHALLENGE_REQUIRED:
+      'MANUAL_CHALLENGE_REQUIRED',
+
+    JOB_CANCELLED:
+      'JOB_CANCELLED',
+
+    UNKNOWN_ERROR:
+      'UNKNOWN_ERROR',
+  });
+
+export class AppError
+  extends Error {
   constructor(
     message,
     {
@@ -108,51 +126,88 @@ export class AppError extends Error {
   }
 }
 
-export class ConfigError extends AppError {
-  constructor(message, options = {}) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.CONFIG_ERROR,
-      retryable: false,
-    });
-  }
-}
-
-export class DatabaseError extends AppError {
-  constructor(message, options = {}) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.DATABASE_ERROR,
-      retryable: false,
-    });
-  }
-}
-
-export class JobNotFoundError extends AppError {
-  constructor(jobId, options = {}) {
+export class ConfigError
+  extends AppError {
+  constructor(
+    message,
+    options = {},
+  ) {
     super(
-      `Job not found: ${jobId}`,
+      message,
       {
         ...options,
+
         code:
-          ERROR_CODES.JOB_NOT_FOUND,
-        retryable: false,
+          ERROR_CODES.CONFIG_ERROR,
+
+        retryable:
+          false,
       },
     );
   }
 }
 
-export class JobConflictError extends AppError {
-  constructor(message, options = {}) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.JOB_CONFLICT,
-      retryable:
-        options.retryable ?? true,
-    });
+export class DatabaseError
+  extends AppError {
+  constructor(
+    message,
+    options = {},
+  ) {
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES.DATABASE_ERROR,
+
+        retryable:
+          false,
+      },
+    );
+  }
+}
+
+export class JobNotFoundError
+  extends AppError {
+  constructor(
+    jobId,
+    options = {},
+  ) {
+    super(
+      `Job not found: ${jobId}`,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES.JOB_NOT_FOUND,
+
+        retryable:
+          false,
+      },
+    );
+  }
+}
+
+export class JobConflictError
+  extends AppError {
+  constructor(
+    message,
+    options = {},
+  ) {
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES.JOB_CONFLICT,
+
+        retryable:
+          options.retryable
+          ?? true,
+      },
+    );
   }
 }
 
@@ -167,10 +222,13 @@ export class InvalidJobTransitionError
       `Invalid job state transition: ${fromState} -> ${toState}`,
       {
         ...options,
+
         code:
           ERROR_CODES
             .INVALID_JOB_TRANSITION,
-        retryable: false,
+
+        retryable:
+          false,
       },
     );
 
@@ -184,28 +242,43 @@ export class InvalidJobTransitionError
 
 export class ProxyConfigurationError
   extends AppError {
-  constructor(message, options = {}) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES
-          .PROXY_CONFIG_ERROR,
-      retryable: false,
-    });
+  constructor(
+    message,
+    options = {},
+  ) {
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .PROXY_CONFIG_ERROR,
+
+        retryable:
+          false,
+      },
+    );
   }
 }
 
 export class ProxyNotFoundError
   extends AppError {
-  constructor(proxyId, options = {}) {
+  constructor(
+    proxyId,
+    options = {},
+  ) {
     super(
       `Proxy not found: ${proxyId}`,
       {
         ...options,
+
         code:
           ERROR_CODES
             .PROXY_NOT_FOUND,
-        retryable: false,
+
+        retryable:
+          false,
       },
     );
   }
@@ -216,16 +289,23 @@ export class ProxyUnavailableError
   constructor(
     message =
       'No healthy execution proxy is available.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES
-          .PROXY_UNAVAILABLE,
-      retryable:
-        options.retryable ?? true,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .PROXY_UNAVAILABLE,
+
+        retryable:
+          options.retryable
+          ?? true,
+      },
+    );
   }
 }
 
@@ -234,15 +314,22 @@ export class PortalAuthError
   constructor(
     message =
       'Portal authentication failed.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES
-          .PORTAL_AUTH_ERROR,
-      retryable: false,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .PORTAL_AUTH_ERROR,
+
+        retryable:
+          false,
+      },
+    );
   }
 }
 
@@ -251,15 +338,22 @@ export class PortalNetworkError
   constructor(
     message =
       'Portal network request failed.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES
-          .PORTAL_NETWORK_ERROR,
-      retryable: true,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .PORTAL_NETWORK_ERROR,
+
+        retryable:
+          true,
+      },
+    );
   }
 }
 
@@ -268,16 +362,23 @@ export class PortalResponseError
   constructor(
     message =
       'Portal returned an invalid response.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES
-          .PORTAL_RESPONSE_ERROR,
-      retryable:
-        options.retryable ?? false,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .PORTAL_RESPONSE_ERROR,
+
+        retryable:
+          options.retryable
+          ?? false,
+      },
+    );
   }
 }
 
@@ -286,14 +387,22 @@ export class NetworkTimeoutError
   constructor(
     message =
       'Network operation timed out.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.NETWORK_TIMEOUT,
-      retryable: true,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .NETWORK_TIMEOUT,
+
+        retryable:
+          true,
+      },
+    );
   }
 }
 
@@ -302,14 +411,21 @@ export class RateLimitError
   constructor(
     message =
       'Remote service rate limited the request.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.HTTP_429,
-      retryable: true,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES.HTTP_429,
+
+        retryable:
+          true,
+      },
+    );
   }
 }
 
@@ -318,14 +434,21 @@ export class Remote5xxError
   constructor(
     message =
       'Remote service returned a server error.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.REMOTE_5XX,
-      retryable: true,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES.REMOTE_5XX,
+
+        retryable:
+          true,
+      },
+    );
   }
 }
 
@@ -334,15 +457,22 @@ export class SessionError
   constructor(
     message =
       'Session operation failed.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.SESSION_ERROR,
-      retryable:
-        options.retryable ?? false,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES.SESSION_ERROR,
+
+        retryable:
+          options.retryable
+          ?? false,
+      },
+    );
   }
 }
 
@@ -351,14 +481,22 @@ export class SessionClosedError
   constructor(
     message =
       'Session is already closed.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.SESSION_CLOSED,
-      retryable: false,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .SESSION_CLOSED,
+
+        retryable:
+          false,
+      },
+    );
   }
 }
 
@@ -367,15 +505,22 @@ export class SessionAllocationMismatchError
   constructor(
     message =
       'Session allocation does not match the job allocation.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES
-          .SESSION_ALLOCATION_MISMATCH,
-      retryable: false,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .SESSION_ALLOCATION_MISMATCH,
+
+        retryable:
+          false,
+      },
+    );
   }
 }
 
@@ -384,14 +529,21 @@ export class OtpTimeoutError
   constructor(
     message =
       'OTP polling reached the configured timeout.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.OTP_TIMEOUT,
-      retryable: true,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES.OTP_TIMEOUT,
+
+        retryable:
+          true,
+      },
+    );
   }
 }
 
@@ -400,16 +552,96 @@ export class OtpResponseError
   constructor(
     message =
       'OTP service returned an invalid response.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES
-          .OTP_RESPONSE_ERROR,
-      retryable:
-        options.retryable ?? false,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .OTP_RESPONSE_ERROR,
+
+        retryable:
+          options.retryable
+          ?? false,
+      },
+    );
+  }
+}
+
+export class WorkflowConfigError
+  extends AppError {
+  constructor(
+    message =
+      'Workflow configuration is invalid.',
+
+    options = {},
+  ) {
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .WORKFLOW_CONFIG_ERROR,
+
+        retryable:
+          false,
+      },
+    );
+  }
+}
+
+export class WorkflowTemplateError
+  extends AppError {
+  constructor(
+    message =
+      'Workflow template could not be resolved.',
+
+    options = {},
+  ) {
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .WORKFLOW_TEMPLATE_ERROR,
+
+        retryable:
+          false,
+      },
+    );
+  }
+}
+
+export class WorkflowStepError
+  extends AppError {
+  constructor(
+    message =
+      'Workflow step failed.',
+
+    options = {},
+  ) {
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .WORKFLOW_STEP_ERROR,
+
+        retryable:
+          options.retryable
+          ?? false,
+      },
+    );
   }
 }
 
@@ -418,15 +650,22 @@ export class ManualChallengeRequiredError
   constructor(
     message =
       'Manual challenge handling is required.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES
-          .MANUAL_CHALLENGE_REQUIRED,
-      retryable: false,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES
+            .MANUAL_CHALLENGE_REQUIRED,
+
+        retryable:
+          false,
+      },
+    );
   }
 }
 
@@ -435,22 +674,34 @@ export class JobCancelledError
   constructor(
     message =
       'Job was cancelled.',
+
     options = {},
   ) {
-    super(message, {
-      ...options,
-      code:
-        ERROR_CODES.JOB_CANCELLED,
-      retryable: false,
-    });
+    super(
+      message,
+      {
+        ...options,
+
+        code:
+          ERROR_CODES.JOB_CANCELLED,
+
+        retryable:
+          false,
+      },
+    );
   }
 }
 
-export function isAppError(error) {
-  return error instanceof AppError;
+export function isAppError(
+  error,
+) {
+  return error
+    instanceof AppError;
 }
 
-export function serializeError(error) {
+export function serializeError(
+  error,
+) {
   if (!(error instanceof Error)) {
     return {
       name:
@@ -479,6 +730,7 @@ export function serializeError(error) {
       error.message,
 
     retryable:
-      error.retryable ?? false,
+      error.retryable
+      ?? false,
   };
 }

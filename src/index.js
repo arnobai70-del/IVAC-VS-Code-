@@ -41,6 +41,10 @@ import {
   PortalClient,
 } from './portal/portal-client.js';
 
+import {
+  loadWorkflowDefinition,
+} from './workflow/loader.js';
+
 export async function main() {
   const config =
     loadConfig();
@@ -62,6 +66,40 @@ export async function main() {
         ),
     },
     'Configuration loaded successfully.',
+  );
+
+  const workflowPath =
+    resolve(
+      PROJECT_ROOT,
+      config.workflow.file,
+    );
+
+  const workflow =
+    loadWorkflowDefinition({
+      filePath:
+        workflowPath,
+
+      maxSteps:
+        config.workflow.maxSteps,
+    });
+
+  logger.info(
+    {
+      workflow: {
+        name:
+          workflow.name,
+
+        version:
+          workflow.version,
+
+        enabled:
+          workflow.enabled,
+
+        stepCount:
+          workflow.steps.length,
+      },
+    },
+    'Workflow definition validated.',
   );
 
   const databasePath =
@@ -152,8 +190,7 @@ export async function main() {
     const portalClient =
       new PortalClient({
         baseUrl:
-          config.portal
-            .baseUrl,
+          config.portal.baseUrl,
 
         pendingPath:
           config.portal
@@ -202,10 +239,6 @@ export async function main() {
       'Portal readiness probe completed.',
     );
 
-    /*
-     * Do not use the key name "otp" for safe operational metadata.
-     * The logger intentionally redacts fields named "otp".
-     */
     logger.info(
       {
         otpIntegration: {
@@ -224,11 +257,29 @@ export async function main() {
 
     logger.info(
       {
-        phase: 6,
+        workflowEngine: {
+          safeTemplates:
+            true,
+
+          evalEnabled:
+            false,
+
+          absoluteTargetRoutes:
+            false,
+
+          challengeBypass:
+            false,
+        },
+      },
+      'Workflow engine safety boundaries configured.',
+    );
+
+    logger.info(
+      {
+        phase: 7,
 
         environment:
-          config.app
-            .environment,
+          config.app.environment,
       },
       'Application bootstrap verified.',
     );
@@ -256,7 +307,9 @@ function isDirectExecution() {
   );
 }
 
-if (isDirectExecution()) {
+if (
+  isDirectExecution()
+) {
   main().catch(
     (error) => {
       const logger =
@@ -272,7 +325,8 @@ if (isDirectExecution()) {
         'Application startup failed.',
       );
 
-      process.exitCode = 1;
+      process.exitCode =
+        1;
     },
   );
 }

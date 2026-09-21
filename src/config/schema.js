@@ -18,9 +18,14 @@ const logLevelSchema = z.enum([
 const pathSchema = z
   .string()
   .min(1)
-  .refine((value) => value.startsWith('/'), {
-    message: 'Path must start with "/"',
-  });
+  .refine(
+    (value) =>
+      value.startsWith('/'),
+    {
+      message:
+        'Path must start with "/"',
+    },
+  );
 
 const mappingPathSchema = z
   .string()
@@ -30,53 +35,64 @@ const mappingPathSchema = z
 const nullableMappingPathSchema =
   mappingPathSchema.nullable();
 
-const optionalSecretSchema = z.preprocess(
-  (value) => {
-    if (
-      typeof value === 'string'
-      && value.trim() === ''
-    ) {
-      return undefined;
-    }
+const optionalSecretSchema =
+  z.preprocess(
+    (value) => {
+      if (
+        typeof value === 'string'
+        && value.trim() === ''
+      ) {
+        return undefined;
+      }
 
-    return value;
-  },
-  z.string().trim().min(1).optional(),
-);
+      return value;
+    },
+    z.string()
+      .trim()
+      .min(1)
+      .optional(),
+  );
 
-const optionalEnvironmentSchema = z.preprocess(
-  (value) => {
-    if (
-      typeof value === 'string'
-      && value.trim() === ''
-    ) {
-      return undefined;
-    }
+const optionalEnvironmentSchema =
+  z.preprocess(
+    (value) => {
+      if (
+        typeof value === 'string'
+        && value.trim() === ''
+      ) {
+        return undefined;
+      }
 
-    return value;
-  },
-  environmentSchema.optional(),
-);
+      return value;
+    },
+    environmentSchema.optional(),
+  );
 
-const optionalLogLevelSchema = z.preprocess(
-  (value) => {
-    if (
-      typeof value === 'string'
-      && value.trim() === ''
-    ) {
-      return undefined;
-    }
+const optionalLogLevelSchema =
+  z.preprocess(
+    (value) => {
+      if (
+        typeof value === 'string'
+        && value.trim() === ''
+      ) {
+        return undefined;
+      }
 
-    return value;
-  },
-  logLevelSchema.optional(),
-);
+      return value;
+    },
+    logLevelSchema.optional(),
+  );
 
 const portalSchema = z
   .object({
-    baseUrl: z.string().url(),
-    pendingPath: pathSchema,
-    healthPath: pathSchema.nullable(),
+    baseUrl:
+      z.string().url(),
+
+    pendingPath:
+      pathSchema,
+
+    healthPath:
+      pathSchema.nullable(),
 
     timeoutMs:
       z.number()
@@ -88,7 +104,11 @@ const portalSchema = z
       z.number()
         .int()
         .min(1024)
-        .max(10 * 1024 * 1024),
+        .max(
+          10
+          * 1024
+          * 1024,
+        ),
 
     mapping: z.object({
       applicationId:
@@ -110,174 +130,208 @@ const portalSchema = z
         nullableMappingPathSchema,
     }),
   })
-  .superRefine((value, context) => {
-    if (
-      value.healthPath !== null
-      && value.healthPath
-        === value.pendingPath
-    ) {
-      context.addIssue({
+  .superRefine(
+    (
+      value,
+      context,
+    ) => {
+      if (
+        value.healthPath !== null
+        && value.healthPath
+          === value.pendingPath
+      ) {
+        context.addIssue({
+          code:
+            z.ZodIssueCode.custom,
+
+          path: [
+            'healthPath',
+          ],
+
+          message:
+            'Portal healthPath must not use the destructive pending endpoint.',
+        });
+      }
+    },
+  );
+
+const otpSchema =
+  z.object({
+    baseUrl:
+      z.string().url(),
+
+    tablePath:
+      pathSchema,
+
+    pollIntervalMs:
+      z.number()
+        .int()
+        .min(250)
+        .max(60_000),
+
+    timeoutMs:
+      z.number()
+        .int()
+        .min(1_000)
+        .max(600_000),
+
+    maxResponseBytes:
+      z.number()
+        .int()
+        .min(1024)
+        .max(
+          10
+          * 1024
+          * 1024,
+        ),
+
+    maxRows:
+      z.number()
+        .int()
+        .min(1)
+        .max(100_000),
+
+    tableSelector:
+      z.string()
+        .trim()
+        .min(1),
+
+    columns:
+      z.object({
+        phone:
+          z.string()
+            .trim()
+            .min(1),
+
         code:
-          z.ZodIssueCode.custom,
+          z.string()
+            .trim()
+            .min(1),
 
-        path: [
-          'healthPath',
-        ],
-
-        message:
-          'Portal healthPath must not use the destructive pending endpoint.',
-      });
-    }
+        createdAt:
+          z.string()
+            .trim()
+            .min(1),
+      }),
   });
 
-const otpSchema = z.object({
-  baseUrl:
-    z.string().url(),
-
-  tablePath:
-    pathSchema,
-
-  pollIntervalMs:
-    z.number()
-      .int()
-      .min(250)
-      .max(60_000),
-
-  timeoutMs:
-    z.number()
-      .int()
-      .min(1_000)
-      .max(600_000),
-
-  maxResponseBytes:
-    z.number()
-      .int()
-      .min(1024)
-      .max(10 * 1024 * 1024),
-
-  maxRows:
-    z.number()
-      .int()
-      .min(1)
-      .max(100_000),
-
-  tableSelector:
-    z.string()
-      .trim()
-      .min(1),
-
-  columns: z.object({
-    phone:
-      z.string()
-        .trim()
-        .min(1),
-
-    code:
-      z.string()
-        .trim()
-        .min(1),
-
-    createdAt:
-      z.string()
-        .trim()
-        .min(1),
-  }),
-});
-
-export const appConfigSchema = z.object({
-  app: z.object({
-    name:
-      z.string()
-        .trim()
-        .min(1),
-
-    environment:
-      environmentSchema,
-  }),
-
-  runtime: z.object({
-    concurrency:
-      z.number()
-        .int()
-        .min(1)
-        .max(100),
-
-    jobsPerCycle:
-      z.number()
-        .int()
-        .min(1)
-        .max(100),
-
-    requestDelayMs:
-      z.number()
-        .int()
-        .min(0)
-        .max(60_000),
-  }),
-
-  database: z.object({
+const workflowRuntimeSchema =
+  z.object({
     file:
       z.string()
         .trim()
         .min(1),
 
-    busyTimeoutMs:
+    maxSteps:
       z.number()
         .int()
-        .min(100)
-        .max(120_000),
-  }),
+        .min(1)
+        .max(1000),
+  });
 
-  network: z.object({
-    proxyConfigFile:
-      z.string()
-        .trim()
-        .min(1),
+export const appConfigSchema =
+  z.object({
+    app:
+      z.object({
+        name:
+          z.string()
+            .trim()
+            .min(1),
 
-    healthCheckUrl:
-      z.string()
-        .url()
-        .nullable(),
+        environment:
+          environmentSchema,
+      }),
 
-    healthTimeoutMs:
-      z.number()
-        .int()
-        .min(250)
-        .max(120_000),
+    runtime:
+      z.object({
+        concurrency:
+          z.number()
+            .int()
+            .min(1)
+            .max(100),
 
-    cooldownMs:
-      z.number()
-        .int()
-        .min(1_000)
-        .max(3_600_000),
-  }),
+        jobsPerCycle:
+          z.number()
+            .int()
+            .min(1)
+            .max(100),
 
-  portal:
-    portalSchema,
+        requestDelayMs:
+          z.number()
+            .int()
+            .min(0)
+            .max(60_000),
+      }),
 
-  otp:
-    otpSchema,
+    database:
+      z.object({
+        file:
+          z.string()
+            .trim()
+            .min(1),
 
-  target: z.object({
-    baseUrl:
-      z.string()
-        .url(),
+        busyTimeoutMs:
+          z.number()
+            .int()
+            .min(100)
+            .max(120_000),
+      }),
 
-    timeoutMs:
-      z.number()
-        .int()
-        .min(100)
-        .max(120_000),
-  }),
+    network:
+      z.object({
+        proxyConfigFile:
+          z.string()
+            .trim()
+            .min(1),
 
-  logging: z.object({
-    level:
-      logLevelSchema,
-  }),
-});
+        healthCheckUrl:
+          z.string()
+            .url()
+            .nullable(),
 
-export const environmentConfigSchema = z
-  .object({
+        healthTimeoutMs:
+          z.number()
+            .int()
+            .min(250)
+            .max(120_000),
+
+        cooldownMs:
+          z.number()
+            .int()
+            .min(1_000)
+            .max(3_600_000),
+      }),
+
+    portal:
+      portalSchema,
+
+    otp:
+      otpSchema,
+
+    target:
+      z.object({
+        baseUrl:
+          z.string().url(),
+
+        timeoutMs:
+          z.number()
+            .int()
+            .min(100)
+            .max(120_000),
+      }),
+
+    workflow:
+      workflowRuntimeSchema,
+
+    logging:
+      z.object({
+        level:
+          logLevelSchema,
+      }),
+  });
+
+export const environmentConfigSchema =
+  z.object({
     PORTAL_API_ACCESS_TOKEN:
       optionalSecretSchema,
 
@@ -287,22 +341,31 @@ export const environmentConfigSchema = z
     LOG_LEVEL:
       optionalLogLevelSchema,
   })
-  .passthrough();
+    .passthrough();
 
-export function validateAppConfig(value) {
+export function validateAppConfig(
+  value,
+) {
   return appConfigSchema.parse(
     value,
   );
 }
 
-export function validateEnvironmentConfig(value) {
-  return environmentConfigSchema.parse(
-    value,
-  );
+export function validateEnvironmentConfig(
+  value,
+) {
+  return environmentConfigSchema
+    .parse(
+      value,
+    );
 }
 
-export function formatZodIssues(error) {
-  if (!(error instanceof z.ZodError)) {
+export function formatZodIssues(
+  error,
+) {
+  if (
+    !(error instanceof z.ZodError)
+  ) {
     return [];
   }
 
