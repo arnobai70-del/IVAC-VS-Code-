@@ -4,12 +4,17 @@ import {
 } from '../core/errors.js';
 
 import {
+  validateIvacTargetContract,
+} from '../contracts/ivac-target-contract.js';
+
+import {
   buildPdfMultipart,
 } from '../documents/multipart.js';
 
 import {
   detectManualChallenge,
 } from './challenge-detector.js';
+
 
 const forbiddenHeaderNames =
   new Set([
@@ -22,6 +27,7 @@ const forbiddenHeaderNames =
     'cookie',
   ]);
 
+
 function getHeader(
   headers,
   name,
@@ -32,7 +38,7 @@ function getHeader(
 
   if (
     typeof headers.get
-    === 'function'
+      === 'function'
   ) {
     return headers.get(
       name,
@@ -83,6 +89,7 @@ function getHeader(
   return null;
 }
 
+
 function validateHeaders(
   headers,
 ) {
@@ -129,6 +136,7 @@ function validateHeaders(
   return output;
 }
 
+
 function ensureJsonContentType(
   headers,
   stepId,
@@ -144,8 +152,7 @@ function ensureJsonContentType(
   }
 
   const normalized =
-    contentType
-      .toLowerCase();
+    contentType.toLowerCase();
 
   if (
     !normalized.includes(
@@ -160,6 +167,7 @@ function ensureJsonContentType(
     );
   }
 }
+
 
 function parseExpectedResponse({
   response,
@@ -227,7 +235,8 @@ function parseExpectedResponse({
     throw new WorkflowStepError(
       `Workflow step ${stepId} returned invalid JSON.`,
       {
-        cause: error,
+        cause:
+          error,
 
         details: {
           stepId,
@@ -247,12 +256,67 @@ function parseExpectedResponse({
   };
 }
 
+
+function normalizeContract(
+  contract,
+) {
+  if (
+    contract === null
+    || contract === undefined
+  ) {
+    throw new TypeError(
+      'Verified IVAC target contract is required.',
+    );
+  }
+
+  if (
+    validateIvacTargetContract(
+      contract,
+    )
+    !== true
+  ) {
+    throw new WorkflowStepError(
+      'IVAC target contract is not verified.',
+    );
+  }
+
+  return contract;
+}
+
+
+function assertContractRoute(
+  contract,
+  route,
+) {
+  const normalized =
+    route.replace(
+      /^\/+/,
+      '/',
+    );
+
+  const found =
+    contract.endpoints.some(
+      (endpoint) =>
+        endpoint.verified === true
+        &&
+        endpoint.path === normalized,
+    );
+
+  if (!found) {
+    throw new WorkflowStepError(
+      'Workflow route is not present in the verified IVAC target contract.',
+    );
+  }
+}
 export class TargetHttpClient {
+
   constructor({
     baseUrl,
     jobHttpClient,
     timeoutMs,
+    contract,
   }) {
+
     if (
       !jobHttpClient
       || typeof jobHttpClient
@@ -263,6 +327,11 @@ export class TargetHttpClient {
         'jobHttpClient with request() is required.',
       );
     }
+
+    this.contract =
+      normalizeContract(
+        contract,
+      );
 
     this.baseUrl =
       new URL(
@@ -276,18 +345,17 @@ export class TargetHttpClient {
       timeoutMs;
 
     this.basePath =
-      `${
-        this.baseUrl.pathname
-          .replace(
-            /\/+$/,
-            '',
-          )
-      }/`;
+      `${this.baseUrl.pathname.replace(
+        /\/+$/,
+        '',
+      )}/`;
   }
+
 
   buildUrl(
     route,
   ) {
+
     if (
       typeof route !== 'string'
       || route.trim() === ''
@@ -300,56 +368,67 @@ export class TargetHttpClient {
     const normalizedRoute =
       route.trim();
 
+
     if (
       normalizedRoute.includes(
         '://',
       )
-      || normalizedRoute
-        .startsWith('//')
-      || normalizedRoute
-        .includes('\\')
+      || normalizedRoute.startsWith(
+        '//',
+      )
+      || normalizedRoute.includes(
+        '\\',
+      )
     ) {
       throw new WorkflowStepError(
         'Workflow HTTP route must remain relative to the configured target API.',
       );
     }
 
+
+    assertContractRoute(
+      this.contract,
+      normalizedRoute,
+    );
+
+
     const relativeRoute =
-      normalizedRoute
-        .replace(
-          /^\/+/,
-          '',
-        );
+      normalizedRoute.replace(
+        /^\/+/,
+        '',
+      );
+
 
     const resolved =
       new URL(
-        `${
-          this.basePath
-        }${relativeRoute}`,
+        `${this.basePath}${relativeRoute}`,
         this.baseUrl.origin,
       );
+
 
     if (
       resolved.origin
       !== this.baseUrl.origin
-      || !resolved.pathname
-        .startsWith(
-          this.basePath,
-        )
+      || !resolved.pathname.startsWith(
+        this.basePath,
+      )
     ) {
       throw new WorkflowStepError(
         'Workflow HTTP route escaped the configured target API base path.',
       );
     }
 
+
     return resolved.toString();
   }
+
 
   validateResponse({
     response,
     expect,
     stepId,
   }) {
+
     const challenge =
       detectManualChallenge({
         statusCode:
@@ -361,6 +440,7 @@ export class TargetHttpClient {
         body:
           response.body,
       });
+
 
     if (
       challenge.detected
@@ -381,6 +461,7 @@ export class TargetHttpClient {
       );
     }
 
+
     if (
       !expect.statuses.includes(
         response.statusCode,
@@ -399,12 +480,14 @@ export class TargetHttpClient {
       );
     }
 
+
     return parseExpectedResponse({
       response,
       expect,
       stepId,
     });
   }
+
 
   async requestStep({
     stepId,
@@ -414,21 +497,26 @@ export class TargetHttpClient {
     body,
     expect,
   }) {
+
     const url =
       this.buildUrl(
         route,
       );
+
 
     const requestHeaders =
       validateHeaders(
         headers,
       );
 
+
     let requestBody;
+
 
     if (
       body !== undefined
     ) {
+
       if (
         method === 'GET'
         || method === 'HEAD'
@@ -438,20 +526,23 @@ export class TargetHttpClient {
         );
       }
 
+
       requestBody =
         JSON.stringify(
           body,
         );
 
+
       const hasContentType =
         Object.keys(
           requestHeaders,
         )
-          .some(
-            (name) =>
-              name.toLowerCase()
-              === 'content-type',
-          );
+        .some(
+          (name) =>
+            name.toLowerCase()
+            === 'content-type',
+        );
+
 
       if (
         !hasContentType
@@ -462,6 +553,7 @@ export class TargetHttpClient {
           'application/json';
       }
     }
+
 
     const response =
       await this.jobHttpClient
@@ -484,12 +576,14 @@ export class TargetHttpClient {
           },
         );
 
+
     return this.validateResponse({
       response,
       expect,
       stepId,
     });
   }
+
 
   async uploadPdf({
     stepId,
@@ -500,25 +594,29 @@ export class TargetHttpClient {
     document,
     expect,
   }) {
+
     const url =
       this.buildUrl(
         route,
       );
+
 
     const requestHeaders =
       validateHeaders(
         headers,
       );
 
+
     const suppliedContentType =
       Object.keys(
         requestHeaders,
       )
-        .some(
-          (name) =>
-            name.toLowerCase()
-            === 'content-type',
-        );
+      .some(
+        (name) =>
+          name.toLowerCase()
+          === 'content-type',
+      );
+
 
     if (
       suppliedContentType
@@ -527,6 +625,7 @@ export class TargetHttpClient {
         `Workflow step ${stepId} cannot manually set Content-Type for multipart PDF upload.`,
       );
     }
+
 
     if (
       !document
@@ -541,6 +640,7 @@ export class TargetHttpClient {
       );
     }
 
+
     const multipart =
       buildPdfMultipart({
         fieldName,
@@ -554,10 +654,12 @@ export class TargetHttpClient {
         fields,
       });
 
+
     requestHeaders[
       'Content-Type'
     ] =
       multipart.contentType;
+
 
     const response =
       await this.jobHttpClient
@@ -580,6 +682,7 @@ export class TargetHttpClient {
               0,
           },
         );
+
 
     return this.validateResponse({
       response,

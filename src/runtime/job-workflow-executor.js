@@ -18,6 +18,7 @@ import {
   createJobWorkflowClients,
 } from './job-workflow-clients.js';
 
+
 function requireObject(
   value,
   name,
@@ -34,6 +35,7 @@ function requireObject(
 
   return value;
 }
+
 
 function requirePositiveInteger(
   value,
@@ -52,6 +54,7 @@ function requirePositiveInteger(
 
   return value;
 }
+
 
 function normalizeOptionalSecret(
   value,
@@ -77,6 +80,7 @@ function normalizeOptionalSecret(
   return value.trim();
 }
 
+
 function validateInjectedDocumentService(
   value,
 ) {
@@ -101,6 +105,7 @@ function validateInjectedDocumentService(
   return value;
 }
 
+
 /*
  * Builds one workflow executor for one in-memory job session.
  *
@@ -114,6 +119,8 @@ function validateInjectedDocumentService(
  * - OTP values remain inside JobContext memory;
  * - PDF binary remains inside JobContext memory;
  * - target routes remain constrained by TargetHttpClient;
+ * - verified IVAC target contract is required before target
+ *   workflow traffic can execute;
  * - document source URLs remain HTTPS + allowlist constrained;
  * - redirects remain disabled by the underlying clients;
  * - human-verification challenges propagate as
@@ -130,16 +137,19 @@ function validateInjectedDocumentService(
  * documentConfig is used to build the verified document
  * pipeline against the same JobHttpClient.
  */
+
 export function createJobWorkflowExecutor({
   session,
   workflow,
   targetConfig,
   otpConfig,
+  contract,
   maxSteps,
   documentConfig = null,
   portalAccessToken = null,
   documentService = null,
 }) {
+
   requireObject(
     session,
     'session',
@@ -158,6 +168,11 @@ export function createJobWorkflowExecutor({
   requireObject(
     otpConfig,
     'otpConfig',
+  );
+
+  requireObject(
+    contract,
+    'contract',
   );
 
   requirePositiveInteger(
@@ -204,9 +219,10 @@ export function createJobWorkflowExecutor({
 
       otp:
         otpConfig,
-    });
 
-  let resolvedDocumentService =
+      contract,
+    });
+      let resolvedDocumentService =
     injectedDocumentService;
 
   let documentClient =
@@ -217,10 +233,12 @@ export function createJobWorkflowExecutor({
   ) {
     const documentPipeline =
       createJobDocumentService({
+
         jobHttpClient:
           clients.jobHttpClient,
 
         client: {
+
           baseUrl:
             documentConfig.baseUrl,
 
@@ -235,9 +253,11 @@ export function createJobWorkflowExecutor({
 
           portalAccessToken:
             normalizedPortalAccessToken,
+
         },
 
         service: {
+
           maxCount:
             documentConfig.maxCount,
 
@@ -246,23 +266,30 @@ export function createJobWorkflowExecutor({
 
           maxTotalBytes:
             documentConfig.maxTotalBytes,
+
         },
+
       });
+
 
     documentClient =
       documentPipeline
         .documentClient;
+
 
     resolvedDocumentService =
       documentPipeline
         .documentService;
   }
 
+
   const otpMatcher =
     new OtpMatcher();
 
+
   const otpService =
     new OtpService({
+
       otpClient:
         clients.otpClient,
 
@@ -282,10 +309,13 @@ export function createJobWorkflowExecutor({
           otpConfig.timeoutMs,
           'otpConfig.timeoutMs',
         ),
+
     });
+
 
   const workflowEngine =
     new WorkflowEngine({
+
       targetHttpClient:
         clients.targetHttpClient,
 
@@ -295,7 +325,9 @@ export function createJobWorkflowExecutor({
         resolvedDocumentService,
 
       maxSteps,
+
     });
+
 
   const execute =
     async ({
@@ -303,13 +335,19 @@ export function createJobWorkflowExecutor({
       signal = null,
     }) => (
       workflowEngine.execute({
+
         workflow,
+
         jobContext,
+
         signal,
+
       })
     );
 
+
   return Object.freeze({
+
     execute,
 
     /*
@@ -319,6 +357,7 @@ export function createJobWorkflowExecutor({
      * persisted because they can contain live session/network
      * state and sensitive in-memory data.
      */
+
     jobHttpClient:
       clients.jobHttpClient,
 
@@ -341,5 +380,7 @@ export function createJobWorkflowExecutor({
       resolvedDocumentService,
 
     workflowEngine,
+
   });
+
 }
