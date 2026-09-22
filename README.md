@@ -16,14 +16,26 @@ Production-oriented Node.js automation platform built around:
 - graceful shutdown
 - explicit manual-challenge handling
 - same-process workflow resume without replaying completed steps
+- fail-closed workflow runtime activation
+- safe final-result restart recovery
 
 ## Current Development Status
 
-Phase 15 is complete.
+Phase 17 is complete.
+
+Latest completed checkpoint:
+
+`564f373 feat: add safe final-result restart recovery`
 
 Current implementation is intentionally fail-closed and non-destructive by default.
 
-Portal intake is disabled by default, workflow execution is disabled by default, and destructive runtime activation requires verified integration configuration.
+Portal intake is disabled by default, workflow execution is disabled by default, the workflow definition is disabled by default, the dashboard is disabled by default, the Portal final-result contract is unconfigured, and the Portal health route is unconfigured.
+
+Destructive runtime activation requires verified external integration configuration.
+
+No Phase 18 feature contract is currently defined in the repository.
+
+Future destructive Portal integration behavior must not invent endpoints, payloads, acknowledgement semantics, remote idempotency behavior, or trusted control-plane behavior.
 
 ## Completed Phases
 
@@ -278,13 +290,62 @@ Implemented:
 - dashboard remains read-only
 - no external mutation/control endpoint has been invented
 
+### Phase 16 — Fail-Closed Workflow Runtime Gate
+
+Implemented:
+
+- destructive Portal intake requires workflow runtime activation
+- destructive Portal intake requires an enabled workflow definition
+- destructive Portal intake requires a configured Portal final-result contract
+- runtime gate is checked before destructive intake activation
+- default startup remains non-destructive
+- missing verified external contracts fail closed
+- no Portal endpoint or acknowledgement semantics are invented
+- workflow runtime and workflow-definition activation remain explicit
+- dashboard remains read-only
+- existing workflow and finalization safety boundaries are preserved
+
+### Phase 17 — Safe Final-Result Restart Recovery
+
+Implemented:
+
+- `FinalResultService.resumeDelivery(jobId)`
+- durable `PENDING` final results can resume without reconstructing the result payload
+- `UNCERTAIN` delivery cannot replay without verified remote idempotency
+- `PENDING` records with previous `UNCERTAIN` delivery certainty fail closed without verified remote idempotency
+- stale `IN_FLIGHT` recovery remains `UNCERTAIN`
+- final-result recovery remains outside the workflow retry boundary
+- workflow steps are never replayed because of result-delivery recovery
+- workflow retry budget is not consumed by final-result recovery
+- same live IP is required while final-result delivery is pending
+- IP releases only after verified delivery and terminal transition
+- `FinalResultRecoveryRunner`
+- restart recovery classification is separated from result-delivery orchestration
+- unconfigured Portal result contract safely skips recovery delivery
+- one result-delivery recovery failure does not stop processing other recovery records
+- bootstrap reports Phase 17
+- default configuration remains fail-closed
+
+New Phase 17 files:
+
+- `src/runtime/final-result-recovery-runner.js`
+- `tests/final-result-recovery-runner.test.js`
+- `tests/final-result-recovery.test.js`
+
+Modified Phase 17 files:
+
+- `src/results/final-result-service.js`
+- `src/index.js`
+- `tests/final-result-service.test.js`
+- `package.json`
+
 ## Current Runtime Safety Model
 
 ### One IP = One Active Job
 
 A live IP allocation belongs to one active job.
 
-Retries and same-process manual resume must retain the same allocation.
+Retries, same-process manual resume, and pending final-result delivery must retain the same allocation.
 
 A replacement IP is not silently acquired.
 
@@ -298,7 +359,8 @@ This includes:
 - manual challenge
 - graceful shutdown
 - interrupted execution
-- final-result delivery uncertainty
+- pending final-result delivery
+- uncertain final-result delivery
 
 IP release happens only after terminal lifecycle handling.
 
@@ -325,6 +387,7 @@ Durable across restart:
 - IP allocation metadata
 - recovery metadata
 - final-result ledger
+- final-result delivery state
 
 Not durable across restart:
 
@@ -335,6 +398,7 @@ Not durable across restart:
 - OTP state
 - PDF buffers
 - same-process workflow response cache
+- manual-challenge execution context
 
 The runtime does not claim these memory-only resources can be reconstructed.
 
@@ -351,22 +415,64 @@ On retry or explicit manual resume:
 
 No durable restart workflow replay guarantee is claimed.
 
+### Final-Result Recovery
+
+Final-result delivery is outside workflow execution and workflow retry.
+
+Restart recovery may resume only from the existing durable final-result ledger.
+
+Properties:
+
+- result payload is not reconstructed from workflow execution input
+- workflow steps are not replayed
+- workflow retry budget is not consumed
+- same live IP is required
+- `PENDING` delivery may resume when replay is safe
+- stale `IN_FLIGHT` delivery becomes `UNCERTAIN`
+- `UNCERTAIN` delivery is never blindly replayed
+- replay after uncertain delivery requires explicitly verified remote idempotency
+- terminal job transition requires verified acknowledgement
+- IP remains allocated until terminal lifecycle completion
+
 ## Safe Default Configuration
 
 By default:
 
 - Portal intake is disabled
-- workflow execution is disabled
+- workflow runtime execution is disabled
+- workflow definition is disabled
 - dashboard is disabled
-- Portal result contract is unconfigured
+- Portal final-result contract is unconfigured
 - Portal health route is unconfigured
 - proxy configuration may be absent
 - no destructive Portal polling occurs
 
 Destructive intake cannot be enabled unless:
 
-1. workflow execution is enabled
-2. the verified Portal final-result contract is configured
+1. workflow runtime execution is enabled
+2. the workflow definition is enabled
+3. the verified Portal final-result contract is configured
+
+No final-result endpoint, payload mapping, acknowledgement semantics, or remote idempotency behavior is assumed by default.
+
+## Portal Final-Result Contract Boundary
+
+`PortalResultClient` intentionally accepts an injected verified contract instead of inventing Portal behavior.
+
+Without a configured contract:
+
+- `isConfigured()` is false
+- delivery fails closed
+- restart delivery is skipped safely
+- destructive Portal intake cannot activate
+
+A future verified contract must explicitly define:
+
+- how the result is sent
+- what constitutes an accepted acknowledgement
+- whether uncertain delivery may be replayed idempotently
+
+The repository does not currently define those external Portal semantics.
 
 ## Operational Dashboard
 
@@ -381,6 +487,8 @@ Properties:
 - bounded error output
 
 Manual challenge resume is not exposed through the dashboard.
+
+No trusted external mutation/control-plane contract is currently configured.
 
 ## Sensitive Data Rules
 
@@ -399,18 +507,36 @@ Sensitive runtime execution input remains memory-only.
 
 ## Validation
 
-Current Phase 15 verification:
+Current Phase 17 verification:
 
 - `npm run check` — passed
 - `npm test` — passed
-- tests: `291`
-- passed: `291`
+- tests: `304`
+- passed: `304`
 - failed: `0`
 - `npm start` — passed
-- bootstrap reports Phase `15`
+- bootstrap reports Phase `17`
 - `git diff --check` — clean
+- secret/runtime safety inspection — clean
 - `git diff --cached --check` — clean
-- staged secret-pattern scan — clean
+- Phase 17 commit pushed to `origin/master`
+- `git status` — clean
+
+Latest verified checkpoint:
+
+`564f373 feat: add safe final-result restart recovery`
+
+## Current External Integration Gates
+
+The following external contracts are intentionally not invented by this repository:
+
+- Portal final-result HTTP endpoint
+- Portal final-result payload mapping
+- Portal final-result acknowledgement semantics
+- Portal final-result remote-idempotency semantics
+- trusted external manual-challenge control plane
+
+Until separately verified contracts are provided, these boundaries remain fail-closed.
 
 ## Requirements
 
@@ -426,3 +552,4 @@ Check versions:
 node --version
 npm --version
 git --version
+```
