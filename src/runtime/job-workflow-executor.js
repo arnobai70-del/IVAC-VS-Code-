@@ -11,6 +11,10 @@ import {
 } from '../workflow/engine.js';
 
 import {
+  assertIvacWorkflowContractReady,
+} from '../workflow/ivac-workflow-contract.js';
+
+import {
   createJobDocumentService,
 } from './job-document-service.js';
 
@@ -119,6 +123,9 @@ function validateInjectedDocumentService(
  * - OTP values remain inside JobContext memory;
  * - PDF binary remains inside JobContext memory;
  * - target routes remain constrained by TargetHttpClient;
+ * - enabled IVAC workflow routes are preflight-verified against
+ *   the exact METHOD + PATH pairs in the verified target
+ *   contract before job-level clients are created;
  * - verified IVAC target contract is required before target
  *   workflow traffic can execute;
  * - document source URLs remain HTTPS + allowlist constrained;
@@ -180,6 +187,26 @@ export function createJobWorkflowExecutor({
     'maxSteps',
   );
 
+  /*
+   * Phase 29 target-contract preflight.
+   *
+   * Disabled workflow construction remains available for safe
+   * fail-closed bootstrap/tests.
+   *
+   * An enabled workflow, however, must prove that every target
+   * HTTP request and document upload is represented by an exact
+   * verified METHOD + PATH pair before any job-level network
+   * client is constructed.
+   */
+  if (
+    workflow.enabled === true
+  ) {
+    assertIvacWorkflowContractReady({
+      workflow,
+      contract,
+    });
+  }
+
   const injectedDocumentService =
     validateInjectedDocumentService(
       documentService,
@@ -222,7 +249,8 @@ export function createJobWorkflowExecutor({
 
       contract,
     });
-      let resolvedDocumentService =
+
+  let resolvedDocumentService =
     injectedDocumentService;
 
   let documentClient =

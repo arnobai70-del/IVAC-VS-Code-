@@ -16,7 +16,10 @@ import {
 } from 'node:url';
 
 import {
-  createIvacTargetContract,
+  createVerifiedIvacAuthTargetContract,
+} from '../src/contracts/ivac-auth-target-contract.js';
+
+import {
   createUnverifiedIvacTargetContract,
   getIvacTargetContractSummary,
 } from '../src/contracts/ivac-target-contract.js';
@@ -24,6 +27,7 @@ import {
 import {
   createJobWorkflowExecutor,
 } from '../src/runtime/job-workflow-executor.js';
+
 
 const testDirectory =
   dirname(
@@ -37,6 +41,7 @@ const projectRoot =
     testDirectory,
     '..',
   );
+
 
 function createSession() {
   return {
@@ -75,6 +80,7 @@ function createSession() {
   };
 }
 
+
 function createWorkflow() {
   return {
     name:
@@ -91,6 +97,7 @@ function createWorkflow() {
   };
 }
 
+
 function createTargetConfig() {
   return {
     baseUrl:
@@ -100,6 +107,7 @@ function createTargetConfig() {
       15000,
   };
 }
+
 
 function createOtpConfig() {
   return {
@@ -137,28 +145,6 @@ function createOtpConfig() {
   };
 }
 
-function createVerifiedContract() {
-  return createIvacTargetContract({
-    verified:
-      true,
-
-    endpoints: [
-      {
-        name:
-          'example-get',
-
-        method:
-          'GET',
-
-        path:
-          '/example',
-
-        verified:
-          true,
-      },
-    ],
-  });
-}
 
 function createExecutorOptions() {
   return {
@@ -179,8 +165,9 @@ function createExecutorOptions() {
   };
 }
 
+
 test(
-  'bootstrap target contract is explicitly unverified and contains no invented endpoints',
+  'unverified target contract helper remains empty and fail-closed',
   () => {
     const contract =
       createUnverifiedIvacTargetContract();
@@ -241,6 +228,60 @@ test(
   },
 );
 
+
+test(
+  'Phase 29 bootstrap auth contract contains only verified authentication routes',
+  () => {
+    const contract =
+      createVerifiedIvacAuthTargetContract();
+
+    assert.equal(
+      contract.status,
+      'VERIFIED',
+    );
+
+    assert.equal(
+      contract.verified,
+      true,
+    );
+
+    assert.equal(
+      contract.endpoints.length,
+      2,
+    );
+
+    assert.deepEqual(
+      contract.endpoints.map(
+        (endpoint) => ({
+          method:
+            endpoint.method,
+
+          path:
+            endpoint.path,
+        }),
+      ),
+      [
+        {
+          method:
+            'POST',
+
+          path:
+            '/auth/sign-in-v2',
+        },
+
+        {
+          method:
+            'POST',
+
+          path:
+            '/otp/verifySigninOtp',
+        },
+      ],
+    );
+  },
+);
+
+
 test(
   'job workflow executor fails closed when the target contract is missing',
   () => {
@@ -250,10 +291,12 @@ test(
           createExecutorOptions(),
         );
       },
+
       /contract must be an object/,
     );
   },
 );
+
 
 test(
   'job workflow executor fails closed when the target contract is unverified',
@@ -267,16 +310,18 @@ test(
             createUnverifiedIvacTargetContract(),
         });
       },
+
       /IVAC target contract is not verified/,
     );
   },
 );
 
+
 test(
-  'verified target contract reaches TargetHttpClient unchanged',
+  'verified auth target contract reaches TargetHttpClient unchanged',
   () => {
     const contract =
-      createVerifiedContract();
+      createVerifiedIvacAuthTargetContract();
 
     const executor =
       createJobWorkflowExecutor({
@@ -310,15 +355,16 @@ test(
   },
 );
 
+
 test(
-  'target route absent from verified contract fails before network execution',
+  'target route absent from verified auth contract fails before network execution',
   async () => {
     const executor =
       createJobWorkflowExecutor({
         ...createExecutorOptions(),
 
         contract:
-          createVerifiedContract(),
+          createVerifiedIvacAuthTargetContract(),
       });
 
     await assert.rejects(
@@ -346,13 +392,15 @@ test(
                 'json',
             },
           }),
+
       /Workflow route is not present in the verified IVAC target contract/,
     );
   },
 );
 
+
 test(
-  'repository activation defaults remain non-destructive',
+  'repository stores bounded auth workflow while activation defaults remain non-destructive',
   () => {
     const appConfig =
       JSON.parse(
@@ -402,9 +450,93 @@ test(
       false,
     );
 
+    assert.equal(
+      workflowConfig.steps.length,
+      4,
+    );
+
     assert.deepEqual(
-      workflowConfig.steps,
-      [],
+      workflowConfig.steps.map(
+        (step) =>
+          step.id,
+      ),
+      [
+        'prepare_signin_otp',
+        'sign_in',
+        'wait_signin_otp',
+        'verify_signin_otp',
+      ],
+    );
+
+    const signIn =
+      workflowConfig.steps
+        .find(
+          (step) =>
+            step.id
+            === 'sign_in',
+        );
+
+    const verify =
+      workflowConfig.steps
+        .find(
+          (step) =>
+            step.id
+            === 'verify_signin_otp',
+        );
+
+    assert.equal(
+      signIn.method,
+      'POST',
+    );
+
+    assert.equal(
+      signIn.route,
+      '/auth/sign-in-v2',
+    );
+
+    assert.equal(
+      verify.method,
+      'POST',
+    );
+
+    assert.equal(
+      verify.route,
+      '/otp/verifySigninOtp',
+    );
+  },
+);
+
+
+test(
+  'application bootstrap uses Phase 29 verified auth contract source',
+  () => {
+    const source =
+      readFileSync(
+        resolve(
+          projectRoot,
+          'src',
+          'index.js',
+        ),
+        'utf8',
+      );
+
+    assert.equal(
+      source.includes(
+        'createVerifiedIvacAuthTargetContract',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'createUnverifiedIvacTargetContract',
+      ),
+      false,
+    );
+
+    assert.match(
+      source,
+      /phase:\s*29/,
     );
   },
 );

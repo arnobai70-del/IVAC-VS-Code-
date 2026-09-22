@@ -1,7 +1,40 @@
 import {
+  randomInt,
+} from 'node:crypto';
+
+import {
   SessionAllocationMismatchError,
   SessionError,
 } from '../core/errors.js';
+
+
+const DEVICE_ID_LENGTH =
+  20;
+
+const DEVICE_ID_CHARACTERS =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+
+function createDeviceId() {
+  let value =
+    '';
+
+  for (
+    let index = 0;
+    index < DEVICE_ID_LENGTH;
+    index += 1
+  ) {
+    value +=
+      DEVICE_ID_CHARACTERS[
+        randomInt(
+          DEVICE_ID_CHARACTERS.length,
+        )
+      ];
+  }
+
+  return value;
+}
+
 
 function requireObject(
   value,
@@ -18,6 +51,7 @@ function requireObject(
 
   return value;
 }
+
 
 function deepFreeze(
   value,
@@ -48,6 +82,7 @@ function deepFreeze(
   );
 }
 
+
 function cloneInput(
   input,
 ) {
@@ -73,6 +108,7 @@ function cloneInput(
     input,
   );
 }
+
 
 function cloneDocument(
   document,
@@ -107,6 +143,7 @@ function cloneDocument(
   };
 }
 
+
 function documentIdentity(
   documents,
 ) {
@@ -123,6 +160,7 @@ function documentIdentity(
     .join('\u0000');
 }
 
+
 function normalizeStepId(
   stepId,
 ) {
@@ -137,6 +175,7 @@ function normalizeStepId(
 
   return stepId.trim();
 }
+
 
 export class JobContext {
   constructor({
@@ -211,6 +250,29 @@ export class JobContext {
           input,
         ),
       );
+
+    /*
+     * Per-job execution metadata.
+     *
+     * x-device-id is required by the evidenced IVAC sign-in
+     * contract.
+     *
+     * It is:
+     *
+     * - generated once when the JobContext is created;
+     * - stable for retries and explicit manual resume while this
+     *   JobContext remains alive;
+     * - different for independently-created job contexts;
+     * - memory-only;
+     * - not copied into durable job state;
+     * - not sourced from Portal input;
+     * - not a cookie, credential, OTP, or authentication token.
+     */
+    this.runtime =
+      Object.freeze({
+        deviceId:
+          createDeviceId(),
+      });
 
     this.responses = {};
 

@@ -8,6 +8,7 @@ const allowedRoots =
     'job',
     'allocation',
     'session',
+    'runtime',
     'responses',
     'otp',
   ]);
@@ -211,7 +212,9 @@ function renderValue(
   }
 
   if (
-    Array.isArray(value)
+    Array.isArray(
+      value,
+    )
   ) {
     return value.map(
       (item) =>
@@ -248,7 +251,9 @@ function renderValue(
         key,
         child,
       ]
-      of Object.entries(value)
+      of Object.entries(
+        value,
+      )
     ) {
       if (
         forbiddenSegments.has(
@@ -289,7 +294,9 @@ export function renderTemplate(
     value,
     context,
     {
-      nodes: 0,
+      nodes:
+        0,
+
       seen:
         new WeakSet(),
     },

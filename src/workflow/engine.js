@@ -72,6 +72,20 @@ function createTemplateContext(
         ?? null,
     },
 
+    /*
+     * Strictly allowlisted memory-only runtime metadata.
+     *
+     * Do not expose the entire JobContext runtime container to
+     * workflow templates. Only values explicitly required by the
+     * verified workflow contract are projected here.
+     */
+    runtime: {
+      deviceId:
+        jobContext.runtime
+          ?.deviceId
+        ?? null,
+    },
+
     responses:
       jobContext.responses
       ?? {},

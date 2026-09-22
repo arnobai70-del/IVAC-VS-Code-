@@ -2,5 +2,59 @@
   "version": 1,
   "name": "ivac-target-workflow",
   "enabled": false,
-  "steps": []
+  "steps": [
+    {
+      "id": "prepare_signin_otp",
+      "type": "otp.prepare",
+      "phone": "{{input.phone}}"
+    },
+    {
+      "id": "sign_in",
+      "type": "http",
+      "method": "POST",
+      "route": "/auth/sign-in-v2",
+      "headers": {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "x-device-id": "{{runtime.deviceId}}"
+      },
+      "body": {
+        "phone": "{{input.phone}}",
+        "password": "{{input.password}}"
+      },
+      "expect": {
+        "statuses": [
+          200
+        ],
+        "response": "json"
+      }
+    },
+    {
+      "id": "wait_signin_otp",
+      "type": "otp.wait"
+    },
+    {
+      "id": "verify_signin_otp",
+      "type": "http",
+      "method": "POST",
+      "route": "/otp/verifySigninOtp",
+      "headers": {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {{responses.sign_in.data.data.accessToken}}"
+      },
+      "body": {
+        "requestId": "{{responses.sign_in.data.data.requestId}}",
+        "phone": "{{input.phone}}",
+        "code": "{{otp.code}}",
+        "otpChannel": "PHONE"
+      },
+      "expect": {
+        "statuses": [
+          200
+        ],
+        "response": "json"
+      }
+    }
+  ]
 }

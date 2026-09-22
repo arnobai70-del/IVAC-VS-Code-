@@ -13,7 +13,10 @@ import {
 } from './config/loader.js';
 
 import {
-  createUnverifiedIvacTargetContract,
+  createVerifiedIvacAuthTargetContract,
+} from './contracts/ivac-auth-target-contract.js';
+
+import {
   getIvacTargetContractSummary,
   validateIvacTargetContract,
 } from './contracts/ivac-target-contract.js';
@@ -142,6 +145,10 @@ import {
 import {
   SessionManager,
 } from './session/session-manager.js';
+
+import {
+  assertIvacWorkflowContractReady,
+} from './workflow/ivac-workflow-contract.js';
 
 import {
   loadWorkflowDefinition,
@@ -278,6 +285,12 @@ function assertDestructiveRuntimeReady({
     );
   }
 
+  assertIvacWorkflowContractReady({
+    workflow,
+    contract:
+      targetContract,
+  });
+
   if (
     !portalResultClient
       .isConfigured()
@@ -366,22 +379,27 @@ export async function main() {
   );
 
   /*
-   * Phase 27 bootstrap boundary.
+   * Phase 29 bootstrap boundary.
    *
-   * No production IVAC target endpoint list is trusted here unless
-   * it has been separately verified and represented by a verified
-   * target contract.
+   * Project-supplied automation evidence has established the exact
+   * authentication METHOD + PATH pairs used by the bounded IVAC
+   * authentication workflow:
    *
-   * The repository therefore starts with an explicit UNVERIFIED
-   * contract. This keeps target execution fail-closed and prevents
-   * destructive Portal intake from starting merely because a target
-   * base URL is configured.
+   * - POST /auth/sign-in-v2
+   * - POST /otp/verifySigninOtp
    *
-   * Phase 28 may replace this bootstrap source only after concrete
-   * endpoint metadata has been verified from project evidence.
+   * Only these authentication routes are trusted here.
+   *
+   * Appointment, slot, document, payment, invoice, and dynamic
+   * target routes remain outside this contract until separately
+   * evidenced and locked by tests.
+   *
+   * A verified target contract does NOT activate destructive
+   * runtime execution. Repository defaults still keep Portal intake
+   * and workflow execution disabled.
    */
   const targetContract =
-    createUnverifiedIvacTargetContract();
+    createVerifiedIvacAuthTargetContract();
 
   logger.info(
     {
@@ -1559,7 +1577,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          28,
+          29,
 
         environment:
           config.app
@@ -1739,7 +1757,7 @@ export async function main() {
 
     return {
       phase:
-        28,
+        29,
 
       recovery:
         summarizeRecovery(
