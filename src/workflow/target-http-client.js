@@ -284,14 +284,41 @@ function normalizeContract(
 }
 
 
-function assertContractRoute(
+function normalizeContractMethod(
+  method,
+) {
+  if (
+    typeof method !== 'string'
+    || method.trim() === ''
+  ) {
+    throw new WorkflowStepError(
+      'Workflow HTTP method must be a non-empty string.',
+    );
+  }
+
+  return method
+    .trim()
+    .toUpperCase();
+}
+
+
+function normalizeContractRoute(
+  route,
+) {
+  return route.replace(
+    /^\/+/,
+    '/',
+  );
+}
+
+
+function assertContractPath(
   contract,
   route,
 ) {
-  const normalized =
-    route.replace(
-      /^\/+/,
-      '/',
+  const normalizedRoute =
+    normalizeContractRoute(
+      route,
     );
 
   const found =
@@ -299,7 +326,8 @@ function assertContractRoute(
       (endpoint) =>
         endpoint.verified === true
         &&
-        endpoint.path === normalized,
+        endpoint.path
+          === normalizedRoute,
     );
 
   if (!found) {
@@ -308,6 +336,48 @@ function assertContractRoute(
     );
   }
 }
+
+
+function assertContractRoute(
+  contract,
+  method,
+  route,
+) {
+  const normalizedMethod =
+    normalizeContractMethod(
+      method,
+    );
+
+  const normalizedRoute =
+    normalizeContractRoute(
+      route,
+    );
+
+  const found =
+    contract.endpoints.some(
+      (endpoint) =>
+        endpoint.verified === true
+        &&
+        endpoint.path
+          === normalizedRoute
+        &&
+        typeof endpoint.method
+          === 'string'
+        &&
+        endpoint.method
+          .trim()
+          .toUpperCase()
+          === normalizedMethod,
+    );
+
+  if (!found) {
+    throw new WorkflowStepError(
+      'Workflow HTTP method is not present for this route in the verified IVAC target contract.',
+    );
+  }
+}
+
+
 export class TargetHttpClient {
 
   constructor({
@@ -386,7 +456,7 @@ export class TargetHttpClient {
     }
 
 
-    assertContractRoute(
+    assertContractPath(
       this.contract,
       normalizedRoute,
     );
@@ -498,10 +568,30 @@ export class TargetHttpClient {
     expect,
   }) {
 
+    const normalizedMethod =
+      normalizeContractMethod(
+        method,
+      );
+
+
     const url =
       this.buildUrl(
         route,
       );
+
+
+    /*
+     * A verified path is not sufficient by itself.
+     *
+     * The exact HTTP method + path pair must exist in the verified
+     * IVAC target contract before any target request can leave the
+     * allocation-bound job session.
+     */
+    assertContractRoute(
+      this.contract,
+      normalizedMethod,
+      route,
+    );
 
 
     const requestHeaders =
@@ -518,11 +608,11 @@ export class TargetHttpClient {
     ) {
 
       if (
-        method === 'GET'
-        || method === 'HEAD'
+        normalizedMethod === 'GET'
+        || normalizedMethod === 'HEAD'
       ) {
         throw new WorkflowStepError(
-          `Workflow step ${stepId} cannot attach a body to ${method}.`,
+          `Workflow step ${stepId} cannot attach a body to ${normalizedMethod}.`,
         );
       }
 
@@ -560,7 +650,8 @@ export class TargetHttpClient {
         .request(
           url,
           {
-            method,
+            method:
+              normalizedMethod,
 
             headers:
               requestHeaders,
@@ -599,6 +690,17 @@ export class TargetHttpClient {
       this.buildUrl(
         route,
       );
+
+
+    /*
+     * Document upload is always POST. A matching path declared
+     * under GET/PUT/etc. must never authorize the upload.
+     */
+    assertContractRoute(
+      this.contract,
+      'POST',
+      route,
+    );
 
 
     const requestHeaders =
