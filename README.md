@@ -21,21 +21,21 @@ Production-oriented Node.js automation platform built around:
 
 ## Current Development Status
 
-Phase 18 is complete.
+Phase 26 is complete.
 
-Latest completed checkpoint:
+Latest functional checkpoint before Phase 26 synchronization:
 
-`c25cb04 feat: integrate verified Portal runtime contract`
+`bbc03e1 feat: harden runtime status contract`
 
-Current implementation is intentionally fail-closed and non-destructive by default.
+Current implementation remains intentionally fail-closed and non-destructive by default.
 
-Portal intake is disabled by default, workflow execution is disabled by default, the workflow definition is disabled by default, the dashboard is disabled by default, the Portal final-result contract is unconfigured, and the Portal health route is unconfigured.
+Portal intake is disabled by default, workflow execution is disabled by default, the workflow definition is disabled by default, the dashboard is disabled by default, and externally verified runtime activation remains explicit.
 
-Destructive runtime activation requires verified external integration configuration.
+Phases 19 through 25 added the IVAC workflow policy boundary, IVAC target contract boundary and runtime enforcement, workflow readiness inspection, runtime dashboard status bridging, and strict runtime-status contract hardening.
 
-Phase 18 implements the verified Portal runtime contract boundary.
+Phase 26 synchronizes the project checkpoint documentation and bootstrap phase marker with the implemented repository state.
 
-Future destructive Portal integration behavior must not invent endpoints, payloads, acknowledgement semantics, remote idempotency behavior, or trusted control-plane behavior.
+No Phase 26 change adds a mutation endpoint, bypasses a manual challenge, persists sensitive runtime context, or weakens existing fail-closed execution boundaries.
 
 ## Completed Phases
 
@@ -393,6 +393,115 @@ Modified Phase 18 files:
 - `tests/portal-intake-service.test.js`
 - `tests/portal-intake-execution-handoff.test.js`
 
+### Phase 19 - IVAC Workflow Policy Layer
+
+Implemented:
+
+- explicit IVAC workflow policy validation
+- allowlisted workflow step types:
+  - `http`
+  - `otp.prepare`
+  - `otp.wait`
+  - `documents.prepare`
+  - `documents.upload`
+- unsupported workflow step types fail closed
+- forbidden automation patterns fail closed
+- workflow loader applies IVAC policy validation
+- workflow capabilities expose bounded safety metadata
+- automatic challenge bypass remains disabled
+- credential, OTP, and cookie persistence remain disabled
+
+### Phase 20 - IVAC Target Contract Boundary
+
+Implemented:
+
+- explicit IVAC target contract model
+- unverified contract defaults fail closed
+- verified endpoint metadata normalization
+- relative endpoint-path validation
+- endpoint method normalization
+- bounded target-contract operational summary
+- no target endpoint is assumed verified by default
+
+### Phase 21 - IVAC Target Contract Metadata Hardening
+
+Implemented:
+
+- target contract objects are frozen
+- endpoint collections are frozen
+- contract metadata cannot be silently mutated after construction
+- IVAC target contract source is included in project syntax checks
+- unverified contract behavior remains fail closed
+
+### Phase 22 - IVAC Target Contract Runtime Enforcement
+
+Implemented:
+
+- IVAC target contract is enforced at the workflow runtime boundary
+- target HTTP execution receives verified contract metadata
+- job workflow client construction carries the target contract
+- job workflow executor carries the target contract
+- target requests remain bound to the existing per-job HTTP client
+- absolute external target routes remain blocked
+- unsafe workflow headers remain blocked
+- anti-bot or human-verification responses still require manual handling
+
+### Phase 23 - Workflow Readiness Inspection
+
+Implemented:
+
+- `inspectWorkflowReadiness()`
+- workflow enabled-state inspection
+- bounded workflow step count reporting
+- normalized workflow step-type reporting
+- execution-readiness reporting
+- explicit readiness safety boundaries:
+  - schema validation
+  - IVAC policy validation
+  - target contract requirement
+  - no automatic challenge bypass
+  - no credential persistence
+  - no OTP persistence
+  - no cookie persistence
+
+### Phase 24 - Runtime Execution Status Dashboard Bridge
+
+Implemented:
+
+- `ExecutionWorker.getStatus()` is bridged into the operational dashboard
+- runtime-status provider wiring in application bootstrap
+- `OperationalService.getRuntimeStatus()`
+- read-only `GET /api/dashboard/runtime`
+- runtime endpoint rejects non-GET requests
+- final dashboard response redaction remains active
+- runtime status exposes execution observability without adding mutation control
+
+### Phase 25 - Runtime Status Contract Hardening
+
+Implemented:
+
+- strict runtime-status allowlist
+- allowed runtime counters:
+  - `inFlight`
+  - `memoryContexts`
+- counters must be non-negative safe integers
+- zero counters are valid
+- malformed runtime-provider output fails closed
+- unexpected provider fields are discarded
+- sensitive provider fields are never exposed through runtime status
+- provider errors continue through bounded operational error sanitization
+
+### Phase 26 - Project Checkpoint / Bootstrap Status Synchronization
+
+Implemented:
+
+- bootstrap phase marker synchronized to Phase 26
+- returned bootstrap phase synchronized to Phase 26
+- project status documentation synchronized through Phase 26
+- completed Phase 19-25 work recorded in repository documentation
+- current validation count synchronized to 345 tests
+- existing runtime behavior and safety boundaries otherwise unchanged
+
 ## Current Runtime Safety Model
 
 ### One IP = One Active Job
@@ -561,36 +670,42 @@ Sensitive runtime execution input remains memory-only.
 
 ## Validation
 
-Current Phase 18 verification:
+Current Phase 26 verification:
 
-- `npm run check` â€” passed
-- `npm test` â€” passed
-- tests: `324`
-- passed: `324`
+- `npm run check` - passed
+- `npm test` - passed
+- tests: `345`
+- passed: `345`
 - failed: `0`
-- `npm start` â€” passed
-- bootstrap reports Phase `18`
-- `git diff --check` â€” clean
-- secret/runtime safety inspection â€” clean
-- `git diff --cached --check` â€” clean
-- Phase 18 commit pushed to `origin/master`
-- `git status` â€” clean
+- `npm start` - passed
+- bootstrap reports Phase `26`
+- `git diff --check` - clean
+- runtime-status strict allowlist tests - passed
+- invalid runtime counter fail-closed tests - passed
+- workflow and target-contract safety tests - passed
+- secret/runtime safety boundaries remain enforced
 
-Latest verified checkpoint:
+Latest functional checkpoint before Phase 26 synchronization:
 
-`c25cb04 feat: integrate verified Portal runtime contract`
+`bbc03e1 feat: harden runtime status contract`
 
 ## Current External Integration Gates
 
-The following external contracts are intentionally not invented by this repository:
+The verified Portal runtime contract defines the currently known Portal health, pending-intake, and final-result status boundaries.
 
-- Portal final-result HTTP endpoint
-- Portal final-result payload mapping
-- Portal final-result acknowledgement semantics
-- Portal final-result remote-idempotency semantics
-- trusted external manual-challenge control plane
+The following boundaries remain explicitly gated:
 
-Until separately verified contracts are provided, these boundaries remain fail-closed.
+- destructive Portal intake remains opt-in
+- workflow runtime execution remains opt-in
+- the workflow definition remains disabled by default
+- IVAC target workflow endpoints require explicit verified target-contract metadata
+- unverified target endpoints fail closed
+- trusted external manual-challenge control is not configured
+- automatic manual-challenge resume is disabled
+- manual-challenge restart recovery is unavailable because the required session/context is memory-only
+- remote final-result replay after uncertain delivery is not assumed idempotent
+
+No runtime component may invent missing target endpoints, bypass human verification, or reconstruct memory-only credentials, cookies, OTP state, PDF buffers, or workflow execution context after restart.
 
 ## Requirements
 

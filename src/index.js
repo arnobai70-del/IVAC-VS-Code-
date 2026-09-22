@@ -1508,7 +1508,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          18,
+          26,
 
         environment:
           config.app
@@ -1688,7 +1688,7 @@ export async function main() {
 
     return {
       phase:
-        18,
+        26,
 
       recovery:
         summarizeRecovery(
