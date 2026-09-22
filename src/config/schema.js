@@ -439,6 +439,34 @@ export const appConfigSchema =
             .int()
             .min(0)
             .max(60_000),
+
+        /*
+         * Destructive Portal intake must be an explicit
+         * operational choice.
+         *
+         * Safe default is disabled so normal startup,
+         * development, tests, and verification cannot consume
+         * a pending Portal application merely by launching the
+         * process.
+         */
+        intakeEnabled:
+          z.boolean()
+            .default(false),
+
+        /*
+         * Delay between destructive Portal intake cycles.
+         *
+         * This is separate from requestDelayMs because
+         * requestDelayMs may legally be zero while a long-lived
+         * intake scheduler must always have a positive bounded
+         * delay to prevent accidental hot-loop consumption.
+         */
+        intakePollIntervalMs:
+          z.number()
+            .int()
+            .min(250)
+            .max(60_000)
+            .default(3000),
       }),
 
     database:

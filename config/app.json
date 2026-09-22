@@ -6,7 +6,9 @@
   "runtime": {
     "concurrency": 2,
     "jobsPerCycle": 2,
-    "requestDelayMs": 250
+    "requestDelayMs": 250,
+    "intakeEnabled": false,
+    "intakePollIntervalMs": 3000
   },
   "database": {
     "file": "data/ivac.sqlite3",

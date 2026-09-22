@@ -46,6 +46,10 @@ import {
 } from './network/dispatcher-pool.js';
 
 import {
+  IntakeReservationStore,
+} from './network/intake-reservation-store.js';
+
+import {
   IpAllocator,
 } from './network/ip-allocator.js';
 
@@ -60,6 +64,14 @@ import {
 import {
   PortalClient,
 } from './portal/portal-client.js';
+
+import {
+  PortalIntakeService,
+} from './portal/portal-intake-service.js';
+
+import {
+  PortalMapper,
+} from './portal/portal-mapper.js';
 
 import {
   PortalResultClient,
@@ -84,6 +96,10 @@ import {
 import {
   GracefulShutdown,
 } from './runtime/graceful-shutdown.js';
+
+import {
+  IntakeLoop,
+} from './runtime/intake-loop.js';
 
 import {
   SessionManager,
@@ -230,6 +246,9 @@ export async function main() {
   let gracefulShutdown =
     null;
 
+  let intakeLoop =
+    null;
+
   try {
     const migrations =
       migrateDatabase(
@@ -319,6 +338,11 @@ export async function main() {
 
     const ipAllocator =
       new IpAllocator(
+        database,
+      );
+
+    const intakeReservationStore =
+      new IntakeReservationStore(
         database,
       );
 
@@ -444,6 +468,72 @@ export async function main() {
         },
       },
       'Portal readiness probe completed.',
+    );
+
+    const portalMapper =
+      new PortalMapper(
+        config.portal.mapping,
+      );
+
+    const portalIntakeService =
+      new PortalIntakeService({
+        portalClient,
+        portalMapper,
+        jobStore,
+        proxyPool,
+        ipAllocator,
+        intakeReservationStore,
+
+        configuredConcurrency:
+          config.runtime
+            .concurrency,
+
+        jobsPerCycle:
+          config.runtime
+            .jobsPerCycle,
+      });
+
+    intakeLoop =
+      new IntakeLoop({
+        portalIntakeService,
+
+        pollIntervalMs:
+          config.runtime
+            .intakePollIntervalMs,
+
+        logger,
+      });
+
+    logger.info(
+      {
+        intake: {
+          enabled:
+            config.runtime
+              .intakeEnabled,
+
+          pollIntervalMs:
+            config.runtime
+              .intakePollIntervalMs,
+
+          configuredConcurrency:
+            config.runtime
+              .concurrency,
+
+          jobsPerCycle:
+            config.runtime
+              .jobsPerCycle,
+
+          overlappingCycles:
+            false,
+
+          blindFailureRetry:
+            false,
+
+          terminalOnlyIpRelease:
+            true,
+        },
+      },
+      'Portal intake runtime configured.',
     );
 
     logger.info(
@@ -671,16 +761,15 @@ export async function main() {
       new GracefulShutdown({
         logger,
 
-        /*
-         * No destructive intake worker is started by the
-         * current bootstrap.
-         *
-         * GracefulShutdown still closes admission before
-         * all remaining cleanup. A future intake loop must
-         * wire its stop() operation here before being enabled.
-         */
         stopIntake:
-          null,
+          async () => {
+            if (
+              intakeLoop
+            ) {
+              await intakeLoop
+                .stop();
+            }
+          },
 
         sessionManager,
 
@@ -701,21 +790,82 @@ export async function main() {
           },
       });
 
+    const hasLongLivedRuntime =
+      config.dashboard.enabled
+      || config.runtime
+        .intakeEnabled;
+
     /*
-     * The dashboard is currently the only long-lived runtime
-     * started by bootstrap. Install process signal handlers
-     * only when the process intentionally remains alive.
-     *
-     * When dashboard is disabled, main() performs startup
-     * verification/recovery and then closes the database
-     * normally in finally.
+     * Install shutdown handling before destructive intake is
+     * admitted. This closes the race where a signal could arrive
+     * after intake starts but before the stop hook exists.
      */
     if (
-      config.dashboard.enabled
+      hasLongLivedRuntime
     ) {
       gracefulShutdown
         .installSignalHandlers();
+    }
 
+    if (
+      config.runtime
+        .intakeEnabled
+    ) {
+      intakeLoop.start();
+
+      logger.info(
+        {
+          intake: {
+            enabled:
+              true,
+
+            state:
+              'RUNNING',
+
+            destructivePortalIntake:
+              true,
+
+            explicitOptIn:
+              true,
+
+            automaticFailureRetry:
+              false,
+          },
+        },
+        'Portal intake loop enabled.',
+      );
+    } else {
+      logger.info(
+        {
+          intake: {
+            enabled:
+              false,
+
+            state:
+              'DISABLED',
+
+            destructivePortalIntake:
+              false,
+
+            explicitOptInRequired:
+              true,
+          },
+        },
+        'Portal intake loop is disabled.',
+      );
+    }
+
+    /*
+     * Keep SQLite open only while a deliberate long-lived
+     * runtime component exists.
+     *
+     * With both dashboard and intake disabled, startup remains
+     * a non-destructive verification/recovery pass and the
+     * database is closed normally in finally.
+     */
+    if (
+      hasLongLivedRuntime
+    ) {
       keepDatabaseOpen =
         true;
     }
@@ -723,7 +873,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          11,
+          12,
 
         environment:
           config.app
@@ -732,6 +882,25 @@ export async function main() {
         dashboardEnabled:
           config.dashboard
             .enabled,
+
+        intake: {
+          enabled:
+            config.runtime
+              .intakeEnabled,
+
+          explicitOptIn:
+            true,
+
+          pollIntervalMs:
+            config.runtime
+              .intakePollIntervalMs,
+
+          overlappingCycles:
+            false,
+
+          blindFailureRetry:
+            false,
+        },
 
         recovery: {
           enabled:
@@ -755,12 +924,15 @@ export async function main() {
             true,
 
           signals:
-            config.dashboard.enabled
+            hasLongLivedRuntime
               ? [
                   'SIGINT',
                   'SIGTERM',
                 ]
               : [],
+
+          waitsForActiveIntake:
+            true,
 
           releasesNonTerminalIp:
             false,
@@ -771,12 +943,22 @@ export async function main() {
 
     return {
       phase:
-        11,
+        12,
 
       recovery:
         summarizeRecovery(
           recoveryResults,
         ),
+
+      intake: {
+        enabled:
+          config.runtime
+            .intakeEnabled,
+
+        status:
+          intakeLoop
+            .getStatus(),
+      },
 
       gracefulShutdown,
     };
