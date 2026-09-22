@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+
 import test from 'node:test';
 
 import {
@@ -59,19 +60,28 @@ function createFixture({
       filePath: ':memory:',
     });
 
-  migrateDatabase(database);
+  migrateDatabase(
+    database,
+  );
 
   const jobStore =
-    new JobStore(database);
+    new JobStore(
+      database,
+    );
 
   const proxyPool =
-    new ProxyPool(database);
+    new ProxyPool(
+      database,
+    );
 
   proxyPool.syncFromConfig(
     proxies,
   );
 
-  for (const proxy of proxies) {
+  for (
+    const proxy
+    of proxies
+  ) {
     proxyPool.recordHealthSuccess(
       proxy.id,
       {
@@ -81,18 +91,22 @@ function createFixture({
   }
 
   const ipAllocator =
-    new IpAllocator(database);
+    new IpAllocator(
+      database,
+    );
 
   const intakeReservationStore =
     new IntakeReservationStore(
       database,
     );
 
-  const serverNames = [];
   let pendingCalls = 0;
 
-  const queue =
-    [...pendingResponses];
+  const pendingCallArguments = [];
+
+  const queue = [
+    ...pendingResponses,
+  ];
 
   const portalClient = {
     async healthCheck() {
@@ -112,12 +126,13 @@ function createFixture({
       };
     },
 
-    async fetchPendingOne({
-      serverName,
-    }) {
+    async fetchPendingOne(
+      ...args
+    ) {
       pendingCalls += 1;
-      serverNames.push(
-        serverName,
+
+      pendingCallArguments.push(
+        args,
       );
 
       return (
@@ -129,13 +144,23 @@ function createFixture({
 
   const portalMapper =
     new PortalMapper({
-      applicationId: 'id',
-      userId: 'user_id',
-      phone: 'phone',
-      password: 'password',
+      applicationId:
+        'id',
+
+      userId:
+        'user_id',
+
+      phone:
+        'phone',
+
+      password:
+        'password',
+
       passportNumber:
         'passport_number',
-      documents: 'documents',
+
+      documents:
+        'documents',
     });
 
   const service =
@@ -162,253 +187,310 @@ function createFixture({
       return pendingCalls;
     },
 
-    getServerNames() {
-      return [
-        ...serverNames,
-      ];
+    getPendingCallArguments() {
+      return pendingCallArguments
+        .map(
+          (args) => [
+            ...args,
+          ],
+        );
     },
   };
 }
 
-test('TEST J: capacity is calculated before destructive Portal consumption', async () => {
-  const fixture =
-    createFixture({
-      proxies: [
-        createProxy(
-          'proxy-1',
-          '203.0.113.111',
-        ),
-      ],
+test(
+  'TEST J: capacity is calculated before destructive Portal consumption',
+  async () => {
+    const fixture =
+      createFixture({
+        proxies: [
+          createProxy(
+            'proxy-1',
+            '203.0.113.111',
+          ),
+        ],
 
-      pendingResponses: [
-        {
-          id: 'app-1',
-          user_id: 'user-1',
-          documents: [],
-        },
+        pendingResponses: [
+          {
+            id:
+              'app-1',
 
-        {
-          id: 'app-2',
-          user_id: 'user-2',
-          documents: [],
-        },
-      ],
+            user_id:
+              'user-1',
 
-      configuredConcurrency: 5,
-      jobsPerCycle: 5,
-    });
+            documents: [],
+          },
+          {
+            id:
+              'app-2',
 
-  try {
-    const result =
-      await fixture.service
-        .runCycle();
+            user_id:
+              'user-2',
 
-    assert.equal(
-      result.effectiveCapacity,
-      1,
-    );
+            documents: [],
+          },
+        ],
 
-    assert.equal(
-      result.created,
-      1,
-    );
+        configuredConcurrency:
+          5,
 
-    assert.equal(
-      fixture.getPendingCalls(),
-      1,
-    );
-
-    assert.equal(
-      fixture.ipAllocator
-        .listLiveAllocations()
-        .length,
-      1,
-    );
-  } finally {
-    closeDatabase(
-      fixture.database,
-    );
-  }
-});
-
-test('Portal Server-Name matches the exact IP finally allocated to the job', async () => {
-  const fixture =
-    createFixture({
-      proxies: [
-        createProxy(
-          'proxy-worker',
-          '203.0.113.121',
-        ),
-      ],
-
-      pendingResponses: [
-        {
-          id: 'app-worker',
-          user_id:
-            'user-worker',
-          documents: [],
-        },
-      ],
-    });
-
-  try {
-    const result =
-      await fixture.service
-        .runCycle();
-
-    assert.equal(
-      result.created,
-      1,
-    );
-
-    assert.equal(
-      fixture
-        .getServerNames()[0],
-      '203.0.113.121',
-    );
-
-    assert.equal(
-      result.jobs[0].assignedIp,
-      '203.0.113.121',
-    );
-
-    const allocation =
-      fixture.ipAllocator
-        .getActiveForJob(
-          result.jobs[0].jobId,
-        );
-
-    assert.equal(
-      allocation.ip,
-      '203.0.113.121',
-    );
-  } finally {
-    closeDatabase(
-      fixture.database,
-    );
-  }
-});
-
-test('TEST I: duplicate Portal application does not create a second execution', async () => {
-  const fixture =
-    createFixture({
-      proxies: [
-        createProxy(
-          'proxy-duplicate',
-          '203.0.113.131',
-        ),
-      ],
-
-      pendingResponses: [
-        {
-          id: 'app-duplicate',
-          user_id: 'user-1',
-          documents: [],
-        },
-      ],
-    });
-
-  try {
-    fixture.jobStore
-      .createOrGetJob({
-        applicationId:
-          'app-duplicate',
-        userId:
-          'user-1',
+        jobsPerCycle:
+          5,
       });
 
-    const result =
-      await fixture.service
-        .runCycle();
+    try {
+      const result =
+        await fixture.service
+          .runCycle();
 
-    assert.equal(
-      result.consumed,
-      1,
-    );
+      assert.equal(
+        result.effectiveCapacity,
+        1,
+      );
 
-    assert.equal(
-      result.created,
-      0,
-    );
+      assert.equal(
+        result.created,
+        1,
+      );
 
-    assert.equal(
-      result.duplicates,
-      1,
-    );
+      assert.equal(
+        fixture.getPendingCalls(),
+        1,
+      );
 
-    assert.equal(
-      fixture.ipAllocator
-        .listLiveAllocations()
-        .length,
-      0,
-    );
+      assert.equal(
+        fixture.ipAllocator
+          .listLiveAllocations()
+          .length,
+        1,
+      );
+    } finally {
+      closeDatabase(
+        fixture.database,
+      );
+    }
+  },
+);
 
-    assert.equal(
-      fixture.intakeReservationStore
-        .countReserved(),
-      0,
-    );
+test(
+  'Portal intake keeps the reserved execution IP separate from static Portal worker identity',
+  async () => {
+    const fixture =
+      createFixture({
+        proxies: [
+          createProxy(
+            'proxy-worker',
+            '203.0.113.121',
+          ),
+        ],
 
-    assert.equal(
-      fixture.proxyPool
-        .countHealthyAvailable(),
-      1,
-    );
-  } finally {
-    closeDatabase(
-      fixture.database,
-    );
-  }
-});
+        pendingResponses: [
+          {
+            id:
+              'app-worker',
 
-test('unhealthy Portal readiness prevents every pending request', async () => {
-  const fixture =
-    createFixture({
-      proxies: [
-        createProxy(
-          'proxy-blocked',
-          '203.0.113.141',
-        ),
-      ],
+            user_id:
+              'user-worker',
 
-      pendingResponses: [
-        {
-          id: 'must-not-consume',
-          documents: [],
-        },
-      ],
+            documents: [],
+          },
+        ],
+      });
 
-      safeToConsume: false,
-    });
+    try {
+      const result =
+        await fixture.service
+          .runCycle();
 
-  try {
-    const result =
-      await fixture.service
-        .runCycle();
+      assert.equal(
+        result.created,
+        1,
+      );
 
-    assert.equal(
-      result.created,
-      0,
-    );
+      /*
+       * PortalIntakeService must not pass the allocated proxy IP
+       * as Server-Name.
+       *
+       * Static Portal worker identity belongs to PortalClient
+       * configuration.
+       */
+      assert.deepEqual(
+        fixture
+          .getPendingCallArguments(),
+        [
+          [],
+        ],
+      );
 
-    assert.equal(
-      result.blocker,
-      'AUTH_FAILED',
-    );
+      /*
+       * The reserved proxy IP still remains exclusively bound to
+       * the created job.
+       */
+      assert.equal(
+        result.jobs[0]
+          .assignedIp,
+        '203.0.113.121',
+      );
 
-    assert.equal(
-      fixture.getPendingCalls(),
-      0,
-    );
+      const allocation =
+        fixture.ipAllocator
+          .getActiveForJob(
+            result.jobs[0]
+              .jobId,
+          );
 
-    assert.equal(
-      fixture.intakeReservationStore
-        .countReserved(),
-      0,
-    );
-  } finally {
-    closeDatabase(
-      fixture.database,
-    );
-  }
-});
+      assert.equal(
+        allocation.ip,
+        '203.0.113.121',
+      );
+
+      assert.equal(
+        allocation.jobId,
+        result.jobs[0]
+          .jobId,
+      );
+    } finally {
+      closeDatabase(
+        fixture.database,
+      );
+    }
+  },
+);
+
+test(
+  'TEST I: duplicate Portal application does not create a second execution',
+  async () => {
+    const fixture =
+      createFixture({
+        proxies: [
+          createProxy(
+            'proxy-duplicate',
+            '203.0.113.131',
+          ),
+        ],
+
+        pendingResponses: [
+          {
+            id:
+              'app-duplicate',
+
+            user_id:
+              'user-1',
+
+            documents: [],
+          },
+        ],
+      });
+
+    try {
+      fixture.jobStore
+        .createOrGetJob({
+          applicationId:
+            'app-duplicate',
+
+          userId:
+            'user-1',
+        });
+
+      const result =
+        await fixture.service
+          .runCycle();
+
+      assert.equal(
+        result.consumed,
+        1,
+      );
+
+      assert.equal(
+        result.created,
+        0,
+      );
+
+      assert.equal(
+        result.duplicates,
+        1,
+      );
+
+      assert.equal(
+        fixture.ipAllocator
+          .listLiveAllocations()
+          .length,
+        0,
+      );
+
+      assert.equal(
+        fixture.intakeReservationStore
+          .countReserved(),
+        0,
+      );
+
+      assert.equal(
+        fixture.proxyPool
+          .countHealthyAvailable(),
+        1,
+      );
+    } finally {
+      closeDatabase(
+        fixture.database,
+      );
+    }
+  },
+);
+
+test(
+  'unhealthy Portal readiness prevents every pending request',
+  async () => {
+    const fixture =
+      createFixture({
+        proxies: [
+          createProxy(
+            'proxy-blocked',
+            '203.0.113.141',
+          ),
+        ],
+
+        pendingResponses: [
+          {
+            id:
+              'must-not-consume',
+
+            documents: [],
+          },
+        ],
+
+        safeToConsume:
+          false,
+      });
+
+    try {
+      const result =
+        await fixture.service
+          .runCycle();
+
+      assert.equal(
+        result.created,
+        0,
+      );
+
+      assert.equal(
+        result.blocker,
+        'AUTH_FAILED',
+      );
+
+      assert.equal(
+        fixture.getPendingCalls(),
+        0,
+      );
+
+      assert.equal(
+        fixture.intakeReservationStore
+          .countReserved(),
+        0,
+      );
+    } finally {
+      closeDatabase(
+        fixture.database,
+      );
+    }
+  },
+);

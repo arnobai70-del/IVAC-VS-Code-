@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+
 import test from 'node:test';
 
 import {
@@ -8,6 +9,9 @@ import {
 function createService() {
   let reservationUsed =
     false;
+
+  let pendingCallArguments =
+    null;
 
   const normalizedApplication = {
     applicationId:
@@ -53,13 +57,11 @@ function createService() {
       };
     },
 
-    async fetchPendingOne({
-      serverName,
-    }) {
-      assert.equal(
-        serverName,
-        '192.0.2.10',
-      );
+    async fetchPendingOne(
+      ...args
+    ) {
+      pendingCallArguments =
+        args;
 
       return {
         raw:
@@ -156,7 +158,9 @@ function createService() {
         1,
       );
 
-      if (reservationUsed) {
+      if (
+        reservationUsed
+      ) {
         return null;
       }
 
@@ -231,30 +235,40 @@ function createService() {
     },
   };
 
-  return new PortalIntakeService({
-    portalClient,
-    portalMapper,
-    jobStore,
-    proxyPool,
-    ipAllocator,
-    intakeReservationStore,
+  const service =
+    new PortalIntakeService({
+      portalClient,
+      portalMapper,
+      jobStore,
+      proxyPool,
+      ipAllocator,
+      intakeReservationStore,
 
-    configuredConcurrency:
-      1,
+      configuredConcurrency:
+        1,
 
-    jobsPerCycle:
-      1,
-  });
+      jobsPerCycle:
+        1,
+    });
+
+  return {
+    service,
+
+    getPendingCallArguments() {
+      return pendingCallArguments;
+    },
+  };
 }
 
 test(
   'fresh intake exposes execution input only as a non-enumerable memory handoff',
   async () => {
-    const service =
+    const fixture =
       createService();
 
     const result =
-      await service.runCycle();
+      await fixture.service
+        .runCycle();
 
     assert.equal(
       result.created,
@@ -264,6 +278,19 @@ test(
     assert.equal(
       result.jobs.length,
       1,
+    );
+
+    /*
+     * The execution proxy IP remains reserved and bound to this
+     * job, but PortalIntakeService must not pass it as
+     * Server-Name.
+     *
+     * Static Portal worker identity is owned by PortalClient.
+     */
+    assert.deepEqual(
+      fixture
+        .getPendingCallArguments(),
+      [],
     );
 
     const job =
@@ -385,11 +412,12 @@ test(
 test(
   'JSON serialization omits sensitive execution input',
   async () => {
-    const service =
+    const fixture =
       createService();
 
     const result =
-      await service.runCycle();
+      await fixture.service
+        .runCycle();
 
     const job =
       result.jobs[0];
@@ -456,17 +484,20 @@ test(
 test(
   'enumerating the public job descriptor does not expose execution input',
   async () => {
-    const service =
+    const fixture =
       createService();
 
     const result =
-      await service.runCycle();
+      await fixture.service
+        .runCycle();
 
     const job =
       result.jobs[0];
 
     assert.deepEqual(
-      Object.keys(job),
+      Object.keys(
+        job,
+      ),
       [
         'jobId',
         'applicationId',
@@ -492,11 +523,12 @@ test(
 test(
   'execution input is intentionally lost across a serialized restart boundary',
   async () => {
-    const service =
+    const fixture =
       createService();
 
     const result =
-      await service.runCycle();
+      await fixture.service
+        .runCycle();
 
     const liveJob =
       result.jobs[0];

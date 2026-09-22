@@ -23,7 +23,12 @@
   "portal": {
     "baseUrl": "https://mrboss.live",
     "pendingPath": "/api/application/pending",
-    "healthPath": null,
+    "healthPath": "/api/novaflow/v1/ping",
+    "workerServerName": "gw.dataimpulse.com",
+    "result": {
+      "enabled": false,
+      "statusPathTemplate": "/api/application/{application}/status"
+    },
     "timeoutMs": 10000,
     "maxResponseBytes": 1048576,
     "mapping": {

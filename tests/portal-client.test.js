@@ -11,12 +11,19 @@ import {
   PORTAL_HEALTH_STATES,
 } from '../src/portal/portal-client.js';
 
-async function startServer(handler) {
+async function startServer(
+  handler,
+) {
   const server =
-    createServer(handler);
+    createServer(
+      handler,
+    );
 
   await new Promise(
-    (resolve, reject) => {
+    (
+      resolve,
+      reject,
+    ) => {
       server.once(
         'error',
         reject,
@@ -41,13 +48,21 @@ async function startServer(handler) {
   };
 }
 
-async function closeServer(server) {
+async function closeServer(
+  server,
+) {
   await new Promise(
-    (resolve, reject) => {
+    (
+      resolve,
+      reject,
+    ) => {
       server.close(
         (error) => {
           if (error) {
-            reject(error);
+            reject(
+              error,
+            );
+
             return;
           }
 
@@ -58,134 +73,29 @@ async function closeServer(server) {
   );
 }
 
-test('TEST K: Portal health check never consumes pending applications', async () => {
-  let healthRequests = 0;
-  let pendingRequests = 0;
+test(
+  'TEST K: Portal health check never consumes pending applications',
+  async () => {
+    let healthRequests = 0;
+    let pendingRequests = 0;
 
-  const {
-    server,
-    baseUrl,
-  } = await startServer(
-    (request, response) => {
-      if (
-        request.url === '/health'
-      ) {
-        healthRequests += 1;
+    const {
+      server,
+      baseUrl,
+    } = await startServer(
+      (
+        request,
+        response,
+      ) => {
+        if (
+          request.url
+          === '/api/novaflow/v1/ping'
+        ) {
+          healthRequests += 1;
 
-        assert.equal(
-          request.method,
-          'GET',
-        );
-
-        assert.equal(
-          request.headers.authorization,
-          'Bearer test-token',
-        );
-
-        response.writeHead(
-          200,
-          {
-            'Content-Type':
-              'application/json',
-          },
-        );
-
-        response.end(
-          JSON.stringify({
-            ok: true,
-          }),
-        );
-
-        return;
-      }
-
-      if (
-        request.url
-        === '/api/application/pending'
-      ) {
-        pendingRequests += 1;
-
-        response.writeHead(204);
-        response.end();
-        return;
-      }
-
-      response.writeHead(404);
-      response.end();
-    },
-  );
-
-  try {
-    const client =
-      new PortalClient({
-        baseUrl,
-        pendingPath:
-          '/api/application/pending',
-
-        healthPath:
-          '/health',
-
-        timeoutMs: 2000,
-        maxResponseBytes: 1024,
-        accessToken:
-          'test-token',
-      });
-
-    const result =
-      await client.healthCheck();
-
-    assert.equal(
-      result.status,
-      PORTAL_HEALTH_STATES
-        .API_AUTHENTICATED,
-    );
-
-    assert.equal(
-      result.safeToConsume,
-      true,
-    );
-
-    assert.equal(
-      healthRequests,
-      1,
-    );
-
-    assert.equal(
-      pendingRequests,
-      0,
-    );
-  } finally {
-    await closeServer(server);
-  }
-});
-
-test('pending request sends assigned IP in Server-Name and no request body', async () => {
-  let receivedBody = '';
-
-  const {
-    server,
-    baseUrl,
-  } = await startServer(
-    (request, response) => {
-      request.on(
-        'data',
-        (chunk) => {
-          receivedBody +=
-            chunk.toString();
-        },
-      );
-
-      request.on(
-        'end',
-        () => {
           assert.equal(
             request.method,
             'GET',
-          );
-
-          assert.equal(
-            request.headers['server-name'],
-            '203.0.113.100',
           );
 
           assert.equal(
@@ -203,96 +113,533 @@ test('pending request sends assigned IP in Server-Name and no request body', asy
 
           response.end(
             JSON.stringify({
-              id: 'app-1',
+              ok:
+                true,
+
+              service:
+                'NovaFlow API',
+
+              version:
+                'v1',
+
+              time:
+                '2026-09-22T00:00:00+06:00',
+
+              token_id:
+                1,
             }),
           );
+
+          return;
+        }
+
+        if (
+          request.url
+          === '/api/application/pending'
+        ) {
+          pendingRequests += 1;
+
+          response.writeHead(
+            204,
+          );
+
+          response.end();
+
+          return;
+        }
+
+        response.writeHead(
+          404,
+        );
+
+        response.end();
+      },
+    );
+
+    try {
+      const client =
+        new PortalClient({
+          baseUrl,
+
+          pendingPath:
+            '/api/application/pending',
+
+          healthPath:
+            '/api/novaflow/v1/ping',
+
+          workerServerName:
+            'gw.dataimpulse.com',
+
+          timeoutMs:
+            2000,
+
+          maxResponseBytes:
+            1024,
+
+          accessToken:
+            'test-token',
+        });
+
+      const result =
+        await client
+          .healthCheck();
+
+      assert.equal(
+        result.status,
+        PORTAL_HEALTH_STATES
+          .API_AUTHENTICATED,
+      );
+
+      assert.equal(
+        result.safeToConsume,
+        true,
+      );
+
+      assert.equal(
+        healthRequests,
+        1,
+      );
+
+      assert.equal(
+        pendingRequests,
+        0,
+      );
+    } finally {
+      await closeServer(
+        server,
+      );
+    }
+  },
+);
+
+test(
+  'pending request sends static Portal worker Server-Name, no Bearer token, and no request body',
+  async () => {
+    let receivedBody = '';
+
+    const {
+      server,
+      baseUrl,
+    } = await startServer(
+      (
+        request,
+        response,
+      ) => {
+        request.on(
+          'data',
+          (chunk) => {
+            receivedBody +=
+              chunk.toString();
+          },
+        );
+
+        request.on(
+          'end',
+          () => {
+            assert.equal(
+              request.method,
+              'GET',
+            );
+
+            assert.equal(
+              request.headers[
+                'server-name'
+              ],
+              'gw.dataimpulse.com',
+            );
+
+            assert.equal(
+              request.headers.authorization,
+              undefined,
+            );
+
+            response.writeHead(
+              200,
+              {
+                'Content-Type':
+                  'application/json',
+              },
+            );
+
+            response.end(
+              JSON.stringify({
+                data: {
+                  id:
+                    123,
+                },
+              }),
+            );
+          },
+        );
+      },
+    );
+
+    try {
+      const client =
+        new PortalClient({
+          baseUrl,
+
+          pendingPath:
+            '/api/application/pending',
+
+          healthPath:
+            '/api/novaflow/v1/ping',
+
+          workerServerName:
+            'gw.dataimpulse.com',
+
+          timeoutMs:
+            2000,
+
+          maxResponseBytes:
+            1024,
+
+          accessToken:
+            'test-token',
+        });
+
+      const result =
+        await client
+          .fetchPendingOne();
+
+      assert.deepEqual(
+        result,
+        {
+          data: {
+            id:
+              123,
+          },
         },
       );
-    },
-  );
 
-  try {
+      assert.equal(
+        receivedBody,
+        '',
+      );
+    } finally {
+      await closeServer(
+        server,
+      );
+    }
+  },
+);
+
+test(
+  'pending request does not require Portal API token',
+  async () => {
+    let requestCount = 0;
+
     const client =
       new PortalClient({
-        baseUrl,
+        baseUrl:
+          'https://example.invalid',
+
         pendingPath:
           '/api/application/pending',
 
         healthPath:
-          '/health',
+          '/api/novaflow/v1/ping',
 
-        timeoutMs: 2000,
-        maxResponseBytes: 1024,
+        workerServerName:
+          'gw.dataimpulse.com',
+
+        timeoutMs:
+          1000,
+
+        maxResponseBytes:
+          1024,
+
         accessToken:
-          'test-token',
+          null,
+
+        requestFn:
+          async (
+            url,
+            options,
+          ) => {
+            requestCount += 1;
+
+            assert.equal(
+              url,
+              'https://example.invalid/api/application/pending',
+            );
+
+            assert.equal(
+              options.headers[
+                'Server-Name'
+              ],
+              'gw.dataimpulse.com',
+            );
+
+            assert.equal(
+              options.headers.Authorization,
+              undefined,
+            );
+
+            return {
+              statusCode:
+                204,
+
+              body: {
+                async dump() {},
+              },
+            };
+          },
       });
 
     const result =
-      await client.fetchPendingOne({
-        serverName:
-          '203.0.113.100',
-      });
+      await client
+        .fetchPendingOne();
 
-    assert.deepEqual(
+    assert.equal(
       result,
-      {
-        id: 'app-1',
-      },
+      null,
     );
 
     assert.equal(
-      receivedBody,
-      '',
+      requestCount,
+      1,
     );
-  } finally {
-    await closeServer(server);
-  }
-});
+  },
+);
 
-test('missing safe health route does not make any network request', async () => {
-  let requests = 0;
+test(
+  'health HTTP 200 without verified NovaFlow acknowledgement fails closed',
+  async () => {
+    const client =
+      new PortalClient({
+        baseUrl:
+          'https://example.invalid',
 
-  const client =
-    new PortalClient({
-      baseUrl:
-        'https://example.invalid',
+        pendingPath:
+          '/api/application/pending',
 
-      pendingPath:
-        '/api/application/pending',
+        healthPath:
+          '/api/novaflow/v1/ping',
 
-      healthPath: null,
+        workerServerName:
+          'gw.dataimpulse.com',
 
-      timeoutMs: 1000,
-      maxResponseBytes: 1024,
-      accessToken:
-        'test-token',
+        timeoutMs:
+          1000,
 
-      requestFn:
-        async () => {
-          requests += 1;
+        maxResponseBytes:
+          1024,
 
-          throw new Error(
-            'must not be called',
-          );
-        },
-    });
+        accessToken:
+          'test-token',
 
-  const result =
-    await client.healthCheck();
+        requestFn:
+          async () => ({
+            statusCode:
+              200,
 
-  assert.equal(
-    result.status,
-    PORTAL_HEALTH_STATES
-      .HEALTH_ROUTE_NOT_CONFIGURED,
-  );
+            body: {
+              async *[Symbol.asyncIterator]() {
+                yield Buffer.from(
+                  JSON.stringify({
+                    ok:
+                      true,
+                  }),
+                );
+              },
+            },
+          }),
+      });
 
-  assert.equal(
-    result.safeToConsume,
-    false,
-  );
+    const result =
+      await client
+        .healthCheck();
 
-  assert.equal(
-    requests,
-    0,
-  );
-});
+    assert.equal(
+      result.status,
+      PORTAL_HEALTH_STATES
+        .INVALID_HEALTH_RESPONSE,
+    );
+
+    assert.equal(
+      result.reachable,
+      true,
+    );
+
+    assert.equal(
+      result.authenticated,
+      false,
+    );
+
+    assert.equal(
+      result.safeToConsume,
+      false,
+    );
+  },
+);
+
+test(
+  'missing Portal API token makes authenticated health readiness fail closed',
+  async () => {
+    let requests = 0;
+
+    const client =
+      new PortalClient({
+        baseUrl:
+          'https://example.invalid',
+
+        pendingPath:
+          '/api/application/pending',
+
+        healthPath:
+          '/api/novaflow/v1/ping',
+
+        workerServerName:
+          'gw.dataimpulse.com',
+
+        timeoutMs:
+          1000,
+
+        maxResponseBytes:
+          1024,
+
+        accessToken:
+          null,
+
+        requestFn:
+          async () => {
+            requests += 1;
+
+            throw new Error(
+              'must not be called',
+            );
+          },
+      });
+
+    const result =
+      await client
+        .healthCheck();
+
+    assert.equal(
+      result.status,
+      PORTAL_HEALTH_STATES
+        .AUTH_NOT_CONFIGURED,
+    );
+
+    assert.equal(
+      result.safeToConsume,
+      false,
+    );
+
+    assert.equal(
+      requests,
+      0,
+    );
+  },
+);
+
+test(
+  'missing static Portal worker identity blocks destructive pending request before network send',
+  async () => {
+    let requests = 0;
+
+    const client =
+      new PortalClient({
+        baseUrl:
+          'https://example.invalid',
+
+        pendingPath:
+          '/api/application/pending',
+
+        healthPath:
+          '/api/novaflow/v1/ping',
+
+        workerServerName:
+          null,
+
+        timeoutMs:
+          1000,
+
+        maxResponseBytes:
+          1024,
+
+        accessToken:
+          'test-token',
+
+        requestFn:
+          async () => {
+            requests += 1;
+
+            throw new Error(
+              'must not be called',
+            );
+          },
+      });
+
+    await assert.rejects(
+      client.fetchPendingOne(),
+      /static worker Server-Name is not configured/i,
+    );
+
+    assert.equal(
+      requests,
+      0,
+    );
+  },
+);
+
+test(
+  'missing safe health route does not make any network request',
+  async () => {
+    let requests = 0;
+
+    const client =
+      new PortalClient({
+        baseUrl:
+          'https://example.invalid',
+
+        pendingPath:
+          '/api/application/pending',
+
+        healthPath:
+          null,
+
+        workerServerName:
+          'gw.dataimpulse.com',
+
+        timeoutMs:
+          1000,
+
+        maxResponseBytes:
+          1024,
+
+        accessToken:
+          'test-token',
+
+        requestFn:
+          async () => {
+            requests += 1;
+
+            throw new Error(
+              'must not be called',
+            );
+          },
+      });
+
+    const result =
+      await client
+        .healthCheck();
+
+    assert.equal(
+      result.status,
+      PORTAL_HEALTH_STATES
+        .HEALTH_ROUTE_NOT_CONFIGURED,
+    );
+
+    assert.equal(
+      result.safeToConsume,
+      false,
+    );
+
+    assert.equal(
+      requests,
+      0,
+    );
+  },
+);

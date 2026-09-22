@@ -170,11 +170,8 @@ export class PortalIntakeService {
     if (!health.safeToConsume) {
       return {
         consumed: 0,
-
         created: 0,
-
         duplicates: 0,
-
         effectiveCapacity: 0,
 
         blocker:
@@ -208,14 +205,13 @@ export class PortalIntakeService {
         liveAllocationCount,
       });
 
-    if (effectiveCapacity === 0) {
+    if (
+      effectiveCapacity === 0
+    ) {
       return {
         consumed: 0,
-
         created: 0,
-
         duplicates: 0,
-
         effectiveCapacity: 0,
 
         blocker:
@@ -230,16 +226,12 @@ export class PortalIntakeService {
     const jobs = [];
 
     let consumed = 0;
-
     let created = 0;
-
     let duplicates = 0;
 
     for (
       let index = 0;
-
       index < effectiveCapacity;
-
       index += 1
     ) {
       const reservation =
@@ -257,12 +249,19 @@ export class PortalIntakeService {
         false;
 
       try {
+        /*
+         * The reservation is still taken BEFORE destructive
+         * Portal intake so every consumed application has a
+         * concrete execution IP available for exclusive binding.
+         *
+         * However, the production Portal Server-Name header is
+         * a STATIC worker/server identity. It is configured on
+         * PortalClient and is intentionally NOT the reserved
+         * per-job proxy IP.
+         */
         const rawApplication =
           await this.portalClient
-            .fetchPendingOne({
-              serverName:
-                reservation.ip,
-            });
+            .fetchPendingOne();
 
         if (
           rawApplication === null
@@ -311,7 +310,9 @@ export class PortalIntakeService {
                 normalized.userId,
             });
 
-        if (!jobResult.created) {
+        if (
+          !jobResult.created
+        ) {
           duplicates += 1;
 
           this.intakeReservationStore
@@ -369,7 +370,9 @@ export class PortalIntakeService {
           }),
         );
       } catch (error) {
-        if (!reservationConsumed) {
+        if (
+          !reservationConsumed
+        ) {
           try {
             this.intakeReservationStore
               .release(
@@ -395,9 +398,7 @@ export class PortalIntakeService {
 
     return {
       consumed,
-
       created,
-
       duplicates,
 
       effectiveCapacity,

@@ -307,11 +307,34 @@ export function getSafeConfigSummary(
         config.portal
           .pendingPath,
 
+      healthPath:
+        config.portal
+          .healthPath,
+
       healthPathConfigured:
         Boolean(
           config.portal
             .healthPath,
         ),
+
+      workerServerName:
+        config.portal
+          .workerServerName,
+
+      result: {
+        enabled:
+          config.portal
+            .result
+            .enabled,
+
+        statusPathTemplate:
+          config.portal
+            .result
+            .statusPathTemplate,
+
+        remoteIdempotentReplay:
+          false,
+      },
 
       timeoutMs:
         config.portal
@@ -393,7 +416,8 @@ export function getSafeConfigSummary(
           .enabled,
 
       file:
-        config.workflow.file,
+        config.workflow
+          .file,
 
       maxSteps:
         config.workflow

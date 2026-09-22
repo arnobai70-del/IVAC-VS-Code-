@@ -31,6 +31,47 @@ const pathSchema =
       },
     );
 
+const portalStatusPathTemplateSchema =
+  z.string()
+    .trim()
+    .min(1)
+    .refine(
+      (value) =>
+        value.startsWith('/'),
+      {
+        message:
+          'Portal status path template must start with "/".',
+      },
+    )
+    .refine(
+      (value) =>
+        (
+          value.match(
+            /\{application\}/g,
+          )
+          ?? []
+        ).length === 1,
+      {
+        message:
+          'Portal status path template must contain exactly one "{application}" placeholder.',
+      },
+    );
+
+const portalWorkerServerNameSchema =
+  z.string()
+    .trim()
+    .min(1)
+    .max(255)
+    .refine(
+      (value) =>
+        !value.includes('\r')
+        && !value.includes('\n'),
+      {
+        message:
+          'Portal worker Server-Name must not contain newline characters.',
+      },
+    );
+
 const mappingPathSchema =
   z.string()
     .trim()
@@ -90,6 +131,30 @@ const optionalLogLevelSchema =
     logLevelSchema.optional(),
   );
 
+const portalResultSchema =
+  z.object({
+    /*
+     * Final-result delivery is destructive remote mutation.
+     *
+     * Knowing the verified route is not enough to activate it.
+     * The operator must explicitly enable this contract.
+     */
+    enabled:
+      z.boolean()
+        .default(false),
+
+    statusPathTemplate:
+      portalStatusPathTemplateSchema
+        .default(
+          '/api/application/{application}/status',
+        ),
+  })
+    .default({
+      enabled: false,
+      statusPathTemplate:
+        '/api/application/{application}/status',
+    });
+
 const portalSchema =
   z.object({
     baseUrl:
@@ -100,6 +165,20 @@ const portalSchema =
 
     healthPath:
       pathSchema.nullable(),
+
+    /*
+     * Portal Server-Name is the static Portal worker identity.
+     *
+     * It is deliberately separate from the per-job proxy/IP
+     * allocation held by the IVAC runtime.
+     */
+    workerServerName:
+      portalWorkerServerNameSchema
+        .nullable()
+        .default(null),
+
+    result:
+      portalResultSchema,
 
     timeoutMs:
       z.number()
@@ -158,6 +237,45 @@ const portalSchema =
 
             message:
               'Portal healthPath must not use the destructive pending endpoint.',
+          });
+        }
+
+        if (
+          value.result
+            .statusPathTemplate
+          === value.pendingPath
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            path: [
+              'result',
+              'statusPathTemplate',
+            ],
+
+            message:
+              'Portal final-result status route must not use the pending endpoint.',
+          });
+        }
+
+        if (
+          value.healthPath !== null
+          && value.result
+            .statusPathTemplate
+            === value.healthPath
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            path: [
+              'result',
+              'statusPathTemplate',
+            ],
+
+            message:
+              'Portal final-result status route must not use the health endpoint.',
           });
         }
       },
@@ -560,11 +678,6 @@ export const appConfigSchema =
          * Portal intake consumes pending remote work.
          * It must never be enabled while workflow execution
          * itself remains disabled.
-         *
-         * Additional external-contract gates belong beside
-         * their verified configuration once those contracts
-         * are known; this schema deliberately does not invent
-         * them.
          */
         if (
           value.runtime.intakeEnabled
@@ -581,6 +694,58 @@ export const appConfigSchema =
 
             message:
               'Portal intake cannot be enabled while workflow execution is disabled.',
+          });
+        }
+
+        /*
+         * The production Portal assigns applications to a static
+         * worker identity carried in Server-Name.
+         *
+         * This identity is separate from the per-job proxy IP and
+         * is required before destructive intake can be enabled.
+         */
+        if (
+          value.runtime.intakeEnabled
+          && !value.portal
+            .workerServerName
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            path: [
+              'portal',
+              'workerServerName',
+            ],
+
+            message:
+              'Portal intake cannot be enabled without a configured static worker Server-Name.',
+          });
+        }
+
+        /*
+         * Every consumed application must eventually pass through
+         * the verified final-result contract.
+         *
+         * Merely knowing the route does not activate it.
+         */
+        if (
+          value.runtime.intakeEnabled
+          && value.portal.result
+            .enabled !== true
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            path: [
+              'portal',
+              'result',
+              'enabled',
+            ],
+
+            message:
+              'Portal intake cannot be enabled while verified final-result delivery is disabled.',
           });
         }
       },

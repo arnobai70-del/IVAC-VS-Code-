@@ -78,6 +78,10 @@ import {
 } from './portal/portal-result-client.js';
 
 import {
+  PortalResultHttpContract,
+} from './portal/portal-result-http-contract.js';
+
+import {
   DEFAULT_MAX_RETRIES,
 } from './recovery/retry-policy.js';
 
@@ -413,8 +417,67 @@ export async function main() {
         database,
       );
 
+    /*
+     * The verified production result/status route is known, but
+     * remote mutation remains explicitly opt-in.
+     *
+     * A concrete result contract exists only when:
+     *
+     * - portal.result.enabled is explicitly true;
+     * - the static Portal worker identity is configured;
+     * - the environment-only API access token is configured.
+     *
+     * Missing any prerequisite leaves PortalResultClient
+     * unconfigured and therefore fail-closed.
+     */
+    const portalResultContract =
+      config.portal.result.enabled
+        === true
+      && Boolean(
+        config.portal
+          .workerServerName,
+      )
+      && Boolean(
+        config.secrets
+          .portalApiAccessToken,
+      )
+        ? new PortalResultHttpContract({
+            baseUrl:
+              config.portal
+                .baseUrl,
+
+            statusPathTemplate:
+              config.portal
+                .result
+                .statusPathTemplate,
+
+            workerServerName:
+              config.portal
+                .workerServerName,
+
+            accessToken:
+              config.secrets
+                .portalApiAccessToken,
+
+            timeoutMs:
+              config.portal
+                .timeoutMs,
+
+            maxResponseBytes:
+              config.portal
+                .maxResponseBytes,
+          })
+        : null;
+
     const portalResultClient =
-      new PortalResultClient();
+      new PortalResultClient(
+        portalResultContract
+          ? {
+              contract:
+                portalResultContract,
+            }
+          : {},
+      );
 
     assertDestructiveRuntimeReady({
       intakeEnabled:
@@ -528,6 +591,9 @@ export async function main() {
      *
      * UNCERTAIN delivery is replayed only if verified remote
      * idempotency is explicitly declared by that contract.
+     *
+     * The verified production Portal status endpoint explicitly
+     * does NOT provide remote idempotent replay.
      */
     const finalResultRecoveryRunner =
       new FinalResultRecoveryRunner({
@@ -619,6 +685,10 @@ export async function main() {
         healthPath:
           config.portal
             .healthPath,
+
+        workerServerName:
+          config.portal
+            .workerServerName,
 
         timeoutMs:
           config.portal
@@ -852,6 +922,20 @@ export async function main() {
           terminalOnlyIpRelease:
             true,
 
+          portalWorkerIdentity: {
+            configured:
+              Boolean(
+                config.portal
+                  .workerServerName,
+              ),
+
+            static:
+              true,
+
+            separateFromAllocatedIp:
+              true,
+          },
+
           executionHandoff: {
             memoryOnly:
               true,
@@ -890,6 +974,9 @@ export async function main() {
 
           replacementIpAcquisition:
             false,
+
+          portalWorkerIdentitySeparateFromIp:
+            true,
 
           sessionPersistence:
             false,
@@ -1043,9 +1130,29 @@ export async function main() {
           terminalAfterPortalAcknowledgement:
             true,
 
+          explicitActivation:
+            config.portal
+              .result
+              .enabled,
+
           portalContractConfigured:
             portalResultClient
               .isConfigured(),
+
+          staticPortalWorkerIdentity:
+            true,
+
+          numericPortalApplicationId:
+            true,
+
+          strongAcknowledgementValidation:
+            true,
+
+          minimumSafePayload:
+            true,
+
+          otpForwarding:
+            false,
 
           remoteIdempotentReplay:
             portalResultClient
@@ -1340,6 +1447,10 @@ export async function main() {
             finalResultRequired:
               true,
 
+            finalResultContractConfigured:
+              portalResultClient
+                .isConfigured(),
+
             automaticDestructiveIntakeRetry:
               false,
 
@@ -1420,6 +1531,12 @@ export async function main() {
           blindFailureRetry:
             false,
 
+          staticPortalWorkerIdentity:
+            true,
+
+          portalWorkerIdentitySeparateFromAllocatedIp:
+            true,
+
           automaticManualChallengeResume:
             false,
         },
@@ -1492,6 +1609,13 @@ export async function main() {
             true,
 
           finalResultDeliveryInsideRetryBoundary:
+            false,
+
+          portalResultContractConfigured:
+            portalResultClient
+              .isConfigured(),
+
+          remoteResultIdempotency:
             false,
         },
 
