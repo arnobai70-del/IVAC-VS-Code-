@@ -21,11 +21,11 @@ Production-oriented Node.js automation platform built around:
 
 ## Current Development Status
 
-Phase 17 is complete.
+Phase 18 is complete.
 
 Latest completed checkpoint:
 
-`564f373 feat: add safe final-result restart recovery`
+`c25cb04 feat: integrate verified Portal runtime contract`
 
 Current implementation is intentionally fail-closed and non-destructive by default.
 
@@ -33,13 +33,13 @@ Portal intake is disabled by default, workflow execution is disabled by default,
 
 Destructive runtime activation requires verified external integration configuration.
 
-No Phase 18 feature contract is currently defined in the repository.
+Phase 18 implements the verified Portal runtime contract boundary.
 
 Future destructive Portal integration behavior must not invent endpoints, payloads, acknowledgement semantics, remote idempotency behavior, or trusted control-plane behavior.
 
 ## Completed Phases
 
-### Phase 1 — Foundation
+### Phase 1 â€” Foundation
 
 Implemented:
 
@@ -53,7 +53,7 @@ Implemented:
 - logging tests
 - error tests
 
-### Phase 2 — SQLite / Durable Job State
+### Phase 2 â€” SQLite / Durable Job State
 
 Implemented:
 
@@ -66,7 +66,7 @@ Implemented:
 - terminal job handling
 - restart-visible non-terminal jobs
 
-### Phase 3 — Proxy / IP Allocation
+### Phase 3 â€” Proxy / IP Allocation
 
 Implemented:
 
@@ -79,7 +79,7 @@ Implemented:
 - allocation-safe dispatcher isolation
 - terminal-only IP release
 
-### Phase 4 — Safe Portal Intake
+### Phase 4 â€” Safe Portal Intake
 
 Implemented:
 
@@ -94,7 +94,7 @@ Implemented:
 
 Sensitive Portal execution input is not persisted.
 
-### Phase 5 — Per-Job Session / Client Isolation
+### Phase 5 â€” Per-Job Session / Client Isolation
 
 Implemented:
 
@@ -109,7 +109,7 @@ Implemented:
 
 Sessions and cookies are intentionally memory-only.
 
-### Phase 6 — OTP HTML Table Integration
+### Phase 6 â€” OTP HTML Table Integration
 
 Implemented:
 
@@ -125,7 +125,7 @@ Implemented:
 
 OTP values are not logged or persisted as durable recovery data.
 
-### Phase 7 — Safe JSON Workflow Engine
+### Phase 7 â€” Safe JSON Workflow Engine
 
 Implemented:
 
@@ -140,7 +140,7 @@ Implemented:
 - manual-challenge propagation
 - fail-closed workflow validation
 
-### Phase 8 — Portal PDF Document Pipeline
+### Phase 8 â€” Portal PDF Document Pipeline
 
 Implemented:
 
@@ -158,7 +158,7 @@ Implemented:
 - anti-bot/manual-challenge propagation
 - no temporary PDF files on disk
 
-### Phase 9 — Final Result Capture / Idempotent Finalization
+### Phase 9 â€” Final Result Capture / Idempotent Finalization
 
 Implemented:
 
@@ -176,7 +176,7 @@ Implemented:
 
 Unverified remote result replay is never performed blindly.
 
-### Phase 10 — Read-Only Operational Dashboard API
+### Phase 10 â€” Read-Only Operational Dashboard API
 
 Implemented:
 
@@ -195,7 +195,7 @@ Implemented:
 
 The dashboard remains strictly read-only.
 
-### Phase 11 — Restart Recovery + Graceful Shutdown
+### Phase 11 â€” Restart Recovery + Graceful Shutdown
 
 Implemented:
 
@@ -215,7 +215,7 @@ Implemented:
 
 Sessions, cookies, Portal credentials, and execution input are not restart-recoverable.
 
-### Phase 12 — Guarded Portal Intake Runtime
+### Phase 12 â€” Guarded Portal Intake Runtime
 
 Implemented:
 
@@ -228,7 +228,7 @@ Implemented:
 - active-cycle wait
 - safe downstream cycle callback handling
 
-### Phase 13 — Intake-to-Workflow Runtime Execution
+### Phase 13 â€” Intake-to-Workflow Runtime Execution
 
 Implemented:
 
@@ -243,7 +243,7 @@ Implemented:
 
 No replacement IP is acquired during workflow execution.
 
-### Phase 14 — Bounded Runtime Workflow Retry
+### Phase 14 â€” Bounded Runtime Workflow Retry
 
 Implemented:
 
@@ -264,7 +264,7 @@ Default retry limit:
 - maximum retries: `3`
 - retry delays: `1000 ms`, `5000 ms`, `15000 ms`
 
-### Phase 15 — Safe Manual Challenge Resume Lifecycle
+### Phase 15 â€” Safe Manual Challenge Resume Lifecycle
 
 Implemented:
 
@@ -290,7 +290,7 @@ Implemented:
 - dashboard remains read-only
 - no external mutation/control endpoint has been invented
 
-### Phase 16 — Fail-Closed Workflow Runtime Gate
+### Phase 16 â€” Fail-Closed Workflow Runtime Gate
 
 Implemented:
 
@@ -305,7 +305,7 @@ Implemented:
 - dashboard remains read-only
 - existing workflow and finalization safety boundaries are preserved
 
-### Phase 17 — Safe Final-Result Restart Recovery
+### Phase 17 â€” Safe Final-Result Restart Recovery
 
 Implemented:
 
@@ -338,6 +338,60 @@ Modified Phase 17 files:
 - `src/index.js`
 - `tests/final-result-service.test.js`
 - `package.json`
+
+
+### Phase 18 - Verified Portal Runtime Contract Integration
+
+Implemented:
+
+- verified Portal health contract integration
+- authenticated Portal readiness validation through:
+  - `GET /api/novaflow/v1/ping`
+- verified Portal pending intake contract boundary:
+  - `GET /api/application/pending`
+- static Portal worker identity support through `Server-Name`
+- separation between Portal worker identity and per-job proxy/IP allocation
+- verified Portal final-result HTTP contract:
+  - `POST /api/application/{application}/status`
+- numeric Portal Application ID enforcement for final-result delivery
+- environment-only Portal API token usage
+- minimum safe final-result payload mapping
+- strong acknowledgement validation before terminal transition
+- explicit remote idempotent replay capability:
+  - `false`
+- conservative delivery certainty handling
+- preservation of existing final-result restart recovery boundaries
+- no workflow replay caused by final-result delivery recovery
+- no workflow retry budget consumption from final-result delivery recovery
+
+Phase 18 safety boundaries:
+
+- Portal final-result contract remains explicitly opt-in
+- default runtime remains non-destructive
+- no OTP forwarding
+- no password/token/cookie forwarding
+- no raw workflow payload forwarding
+- no PDF binary forwarding
+- no invented remote idempotency semantics
+- no trusted manual-challenge control plane integration
+
+New Phase 18 files:
+
+- `src/portal/portal-result-http-contract.js`
+- `tests/portal-result-http-contract.test.js`
+
+Modified Phase 18 files:
+
+- `config/app.json`
+- `package.json`
+- `src/config/schema.js`
+- `src/config/loader.js`
+- `src/index.js`
+- `src/portal/portal-client.js`
+- `src/portal/portal-intake-service.js`
+- `tests/portal-client.test.js`
+- `tests/portal-intake-service.test.js`
+- `tests/portal-intake-execution-handoff.test.js`
 
 ## Current Runtime Safety Model
 
@@ -507,24 +561,24 @@ Sensitive runtime execution input remains memory-only.
 
 ## Validation
 
-Current Phase 17 verification:
+Current Phase 18 verification:
 
-- `npm run check` — passed
-- `npm test` — passed
-- tests: `304`
-- passed: `304`
+- `npm run check` â€” passed
+- `npm test` â€” passed
+- tests: `324`
+- passed: `324`
 - failed: `0`
-- `npm start` — passed
-- bootstrap reports Phase `17`
-- `git diff --check` — clean
-- secret/runtime safety inspection — clean
-- `git diff --cached --check` — clean
-- Phase 17 commit pushed to `origin/master`
-- `git status` — clean
+- `npm start` â€” passed
+- bootstrap reports Phase `18`
+- `git diff --check` â€” clean
+- secret/runtime safety inspection â€” clean
+- `git diff --cached --check` â€” clean
+- Phase 18 commit pushed to `origin/master`
+- `git status` â€” clean
 
 Latest verified checkpoint:
 
-`564f373 feat: add safe final-result restart recovery`
+`c25cb04 feat: integrate verified Portal runtime contract`
 
 ## Current External Integration Gates
 
