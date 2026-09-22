@@ -122,6 +122,25 @@ function createContext() {
         value;
     },
 
+    hasResponse(
+      stepId,
+    ) {
+      return Object.prototype
+        .hasOwnProperty
+        .call(
+          this.responses,
+          stepId,
+        );
+    },
+
+    getResponse(
+      stepId,
+    ) {
+      return this.responses[
+        stepId
+      ];
+    },
+
     setDocuments(
       documents,
     ) {
@@ -172,7 +191,8 @@ function createOtpService() {
 }
 
 const workflow = {
-  version: 1,
+  version:
+    1,
 
   name:
     'document-flow',
@@ -227,276 +247,438 @@ const workflow = {
   ],
 };
 
-test('Portal documents are automatically prepared and uploaded one by one', async () => {
-  let uploadCalls =
-    0;
+test(
+  'Portal documents are automatically prepared and uploaded one by one',
+  async () => {
+    let uploadCalls =
+      0;
 
-  const documentService = {
-    async prepareForJobContext({
-      jobContext,
-      sources,
-    }) {
-      assert.deepEqual(
+    const documentService = {
+      async prepareForJobContext({
+        jobContext,
         sources,
-        [
-          '/passport.pdf',
-          '/visa.pdf',
-        ],
-      );
+      }) {
+        assert.deepEqual(
+          sources,
+          [
+            '/passport.pdf',
+            '/visa.pdf',
+          ],
+        );
 
-      const documents = [
-        createDocument(
-          'hash-passport',
-          'passport.pdf',
-        ),
-
-        createDocument(
-          'hash-visa',
-          'visa.pdf',
-        ),
-      ];
-
-      jobContext.setDocuments(
-        documents,
-      );
-
-      return {
-        count:
-          2,
-
-        totalBytes:
-          documents.reduce(
-            (
-              total,
-              document,
-            ) =>
-              total
-              + document.sizeBytes,
-            0,
+        const documents = [
+          createDocument(
+            'hash-passport',
+            'passport.pdf',
           ),
 
-        documents:
-          documents.map(
-            ({
-              buffer,
-              ...metadata
-            }) => {
-              void buffer;
-
-              return metadata;
-            },
+          createDocument(
+            'hash-visa',
+            'visa.pdf',
           ),
-      };
-    },
-  };
+        ];
 
-  const targetHttpClient = {
-    async requestStep() {
-      throw new Error(
-        'unused',
-      );
-    },
+        jobContext.setDocuments(
+          documents,
+        );
 
-    async uploadPdf({
-      document,
-      fieldName,
-      fields,
-    }) {
-      uploadCalls += 1;
+        return {
+          count:
+            2,
 
-      assert.equal(
+          totalBytes:
+            documents.reduce(
+              (
+                total,
+                document,
+              ) =>
+                total
+                + document.sizeBytes,
+              0,
+            ),
+
+          documents:
+            documents.map(
+              ({
+                buffer,
+                ...metadata
+              }) => {
+                void buffer;
+
+                return metadata;
+              },
+            ),
+        };
+      },
+    };
+
+    const targetHttpClient = {
+      async requestStep() {
+        throw new Error(
+          'unused',
+        );
+      },
+
+      async uploadPdf({
+        document,
         fieldName,
-        'file',
-      );
+        fields,
+      }) {
+        uploadCalls +=
+          1;
 
-      assert.equal(
-        fields
-          .application_id,
-        'app-1',
-      );
+        assert.equal(
+          fieldName,
+          'file',
+        );
 
-      assert.equal(
-        Buffer.isBuffer(
-          document.buffer,
-        ),
-        true,
-      );
+        assert.equal(
+          fields
+            .application_id,
+          'app-1',
+        );
 
-      return {
-        statusCode:
-          200,
-
-        data: {
-          uploaded:
-            document.id,
-        },
-      };
-    },
-  };
-
-  const context =
-    createContext();
-
-  const engine =
-    new WorkflowEngine({
-      maxSteps:
-        10,
-
-      otpService:
-        createOtpService(),
-
-      documentService,
-
-      targetHttpClient,
-    });
-
-  const result =
-    await engine.execute({
-      workflow,
-      jobContext:
-        context,
-    });
-
-  assert.equal(
-    result.status,
-    'COMPLETED',
-  );
-
-  assert.equal(
-    uploadCalls,
-    2,
-  );
-
-  assert.equal(
-    context.responses
-      .upload_documents
-      .uploadedCount,
-    2,
-  );
-
-  assert.equal(
-    context.currentStep,
-    null,
-  );
-});
-
-test('successful document upload is reused on same-context workflow retry', async () => {
-  let uploadCalls =
-    0;
-
-  const preparedDocuments = [
-    createDocument(
-      'hash-passport',
-      'passport.pdf',
-    ),
-
-    createDocument(
-      'hash-visa',
-      'visa.pdf',
-    ),
-  ];
-
-  const documentService = {
-    async prepareForJobContext({
-      jobContext,
-    }) {
-      jobContext.setDocuments(
-        preparedDocuments,
-      );
-
-      return {
-        count:
-          2,
-
-        totalBytes:
-          48,
-
-        documents:
-          preparedDocuments.map(
-            ({
-              buffer,
-              ...metadata
-            }) => {
-              void buffer;
-
-              return metadata;
-            },
+        assert.equal(
+          Buffer.isBuffer(
+            document.buffer,
           ),
-      };
-    },
-  };
+          true,
+        );
 
-  const targetHttpClient = {
-    async requestStep() {
-      throw new Error(
-        'unused',
-      );
-    },
+        return {
+          statusCode:
+            200,
 
-    async uploadPdf({
-      document,
-    }) {
-      uploadCalls += 1;
+          data: {
+            uploaded:
+              document.id,
+          },
+        };
+      },
+    };
 
-      return {
-        statusCode:
-          200,
+    const context =
+      createContext();
 
-        data: {
-          uploaded:
-            document.id,
-        },
-      };
-    },
-  };
+    const engine =
+      new WorkflowEngine({
+        maxSteps:
+          10,
 
-  const context =
-    createContext();
+        otpService:
+          createOtpService(),
 
-  const engine =
-    new WorkflowEngine({
-      maxSteps:
-        10,
+        documentService,
 
-      otpService:
-        createOtpService(),
+        targetHttpClient,
+      });
 
-      documentService,
+    const result =
+      await engine.execute({
+        workflow,
 
-      targetHttpClient,
-    });
+        jobContext:
+          context,
+      });
 
-  await engine.execute({
-    workflow,
-    jobContext:
-      context,
-  });
+    assert.equal(
+      result.status,
+      'COMPLETED',
+    );
 
-  assert.equal(
-    uploadCalls,
-    2,
-  );
+    assert.equal(
+      uploadCalls,
+      2,
+    );
 
-  await engine.execute({
-    workflow,
-    jobContext:
-      context,
-  });
+    assert.equal(
+      context.responses
+        .upload_documents
+        .uploadedCount,
+      2,
+    );
 
-  assert.equal(
-    uploadCalls,
-    2,
-  );
+    assert.equal(
+      context.currentStep,
+      null,
+    );
+  },
+);
 
-  assert.equal(
-    context.responses
-      .upload_documents
-      .uploads
-      .every(
-        (upload) =>
-          upload.reused
-          === true,
+test(
+  'successful document upload is reused on same-context workflow retry',
+  async () => {
+    const uploadCalls =
+      new Map();
+
+    let prepareCalls =
+      0;
+
+    let failVisaOnce =
+      true;
+
+    const preparedDocuments = [
+      createDocument(
+        'hash-passport',
+        'passport.pdf',
       ),
-    true,
-  );
-});
+
+      createDocument(
+        'hash-visa',
+        'visa.pdf',
+      ),
+    ];
+
+    const documentService = {
+      async prepareForJobContext({
+        jobContext,
+      }) {
+        prepareCalls +=
+          1;
+
+        jobContext.setDocuments(
+          preparedDocuments,
+        );
+
+        return {
+          count:
+            2,
+
+          totalBytes:
+            48,
+
+          documents:
+            preparedDocuments.map(
+              ({
+                buffer,
+                ...metadata
+              }) => {
+                void buffer;
+
+                return metadata;
+              },
+            ),
+        };
+      },
+    };
+
+    const targetHttpClient = {
+      async requestStep() {
+        throw new Error(
+          'unused',
+        );
+      },
+
+      async uploadPdf({
+        document,
+      }) {
+        uploadCalls.set(
+          document.id,
+          (
+            uploadCalls.get(
+              document.id,
+            )
+            ?? 0
+          ) + 1,
+        );
+
+        if (
+          document.id
+          === 'hash-visa'
+          && failVisaOnce
+        ) {
+          failVisaOnce =
+            false;
+
+          const error =
+            new Error(
+              'temporary upload failure',
+            );
+
+          error.code =
+            'NETWORK_TIMEOUT';
+
+          error.retryable =
+            true;
+
+          throw error;
+        }
+
+        return {
+          statusCode:
+            200,
+
+          data: {
+            uploaded:
+              document.id,
+          },
+        };
+      },
+    };
+
+    const context =
+      createContext();
+
+    const engine =
+      new WorkflowEngine({
+        maxSteps:
+          10,
+
+        otpService:
+          createOtpService(),
+
+        documentService,
+
+        targetHttpClient,
+      });
+
+    /*
+     * First attempt:
+     *
+     * - prepare_documents completes;
+     * - passport upload succeeds and receives a per-document
+     *   completion marker;
+     * - visa upload fails;
+     * - upload_documents itself has no completed response marker.
+     */
+    await assert.rejects(
+      engine.execute({
+        workflow,
+
+        jobContext:
+          context,
+      }),
+      (
+        error,
+      ) => (
+        error.code
+        === 'NETWORK_TIMEOUT'
+      ),
+    );
+
+    assert.equal(
+      prepareCalls,
+      1,
+    );
+
+    assert.equal(
+      context.hasResponse(
+        'prepare_documents',
+      ),
+      true,
+    );
+
+    assert.equal(
+      context.hasResponse(
+        'upload_documents',
+      ),
+      false,
+    );
+
+    assert.equal(
+      context.currentStep,
+      'upload_documents',
+    );
+
+    assert.ok(
+      context.getDocumentUpload(
+        'upload_documents',
+        'hash-passport',
+      ),
+    );
+
+    assert.equal(
+      context.getDocumentUpload(
+        'upload_documents',
+        'hash-visa',
+      ),
+      null,
+    );
+
+    /*
+     * Same-context retry:
+     *
+     * - completed prepare_documents step is skipped;
+     * - upload_documents re-enters;
+     * - passport is reused from its existing marker;
+     * - only missing visa is sent again.
+     */
+    const result =
+      await engine.execute({
+        workflow,
+
+        jobContext:
+          context,
+      });
+
+    assert.equal(
+      result.status,
+      'COMPLETED',
+    );
+
+    assert.equal(
+      prepareCalls,
+      1,
+    );
+
+    assert.equal(
+      uploadCalls.get(
+        'hash-passport',
+      ),
+      1,
+    );
+
+    assert.equal(
+      uploadCalls.get(
+        'hash-visa',
+      ),
+      2,
+    );
+
+    assert.equal(
+      context.responses
+        .upload_documents
+        .uploadedCount,
+      2,
+    );
+
+    assert.equal(
+      context.responses
+        .upload_documents
+        .uploads[0]
+        .document
+        .id,
+      'hash-passport',
+    );
+
+    assert.equal(
+      context.responses
+        .upload_documents
+        .uploads[0]
+        .reused,
+      true,
+    );
+
+    assert.equal(
+      context.responses
+        .upload_documents
+        .uploads[1]
+        .document
+        .id,
+      'hash-visa',
+    );
+
+    assert.equal(
+      context.responses
+        .upload_documents
+        .uploads[1]
+        .reused,
+      false,
+    );
+
+    assert.equal(
+      context.currentStep,
+      null,
+    );
+  },
+);

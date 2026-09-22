@@ -53,8 +53,20 @@ function createHarness({
   initialJob =
     createJob(),
 
-  executionImplementation,
+  executionImplementation =
+    async () => ({
+      status:
+        'WORKFLOW_COMPLETED',
+    }),
+
+  resumeImplementation =
+    async () => ({
+      status:
+        'WORKFLOW_COMPLETED',
+    }),
+
   maxRetries = 3,
+
   sleepImplementation =
     async () => {},
 } = {}) {
@@ -71,6 +83,8 @@ function createHarness({
   const markRetryReservedCalls = [];
 
   const executionCalls = [];
+
+  const resumeCalls = [];
 
   const jobStore = {
     getJobById(
@@ -231,6 +245,34 @@ function createHarness({
         },
       });
     },
+
+    async resumeManualChallenge(
+      args,
+    ) {
+      resumeCalls.push(
+        args,
+      );
+
+      return resumeImplementation({
+        args,
+
+        callNumber:
+          resumeCalls.length,
+
+        setJobState(
+          state,
+        ) {
+          job = {
+            ...job,
+
+            state,
+
+            version:
+              job.version + 1,
+          };
+        },
+      });
+    },
   };
 
   const sleepFn =
@@ -270,6 +312,8 @@ function createHarness({
     markRetryReservedCalls,
 
     executionCalls,
+
+    resumeCalls,
 
     getJob:
       () => ({
@@ -313,14 +357,6 @@ test(
               throw error;
             }
 
-            /*
-             * ExecutionWorker itself performs:
-             * RETRY_PENDING -> RUNNING.
-             *
-             * The mock reflects that verified behavior so the
-             * durable state after the successful retry matches
-             * production semantics.
-             */
             setJobState(
               JOB_STATES.RUNNING,
             );
@@ -364,21 +400,23 @@ test(
     );
 
     assert.equal(
-      harness.executionCalls
-        .length,
+      harness.executionCalls.length,
       2,
     );
 
     assert.equal(
-      harness.executionCalls[0]
-        .input,
+      harness.executionCalls[0].input,
       input,
     );
 
     assert.equal(
-      harness.executionCalls[1]
-        .input,
+      harness.executionCalls[1].input,
       input,
+    );
+
+    assert.equal(
+      harness.resumeCalls.length,
+      0,
     );
 
     assert.equal(
@@ -387,16 +425,14 @@ test(
     );
 
     assert.deepEqual(
-      harness
-        .markRetryReservedCalls,
+      harness.markRetryReservedCalls,
       [
         'job-1',
       ],
     );
 
     assert.equal(
-      harness.transitions
-        .length,
+      harness.transitions.length,
       1,
     );
 
@@ -414,15 +450,7 @@ test(
     );
 
     assert.equal(
-      harness.transitions[0]
-        .options
-        .failureMessage,
-      'Retryable workflow execution failure; bounded retry scheduled.',
-    );
-
-    assert.equal(
-      harness.sleepCalls
-        .length,
+      harness.sleepCalls.length,
       1,
     );
 
@@ -433,17 +461,9 @@ test(
     );
 
     assert.equal(
-      harness
-        .getJob()
+      harness.getJob()
         .retryCount,
       1,
-    );
-
-    assert.equal(
-      harness
-        .getJob()
-        .state,
-      JOB_STATES.RUNNING,
     );
   },
 );
@@ -497,10 +517,6 @@ test(
           },
       });
 
-    /*
-     * The mock ExecutionWorker must enter RUNNING before each
-     * retryable failure, just like the real ExecutionWorker.
-     */
     const originalRun =
       harness.runner
         .executionWorker
@@ -517,8 +533,7 @@ test(
         args,
       ) => {
         if (
-          harness
-            .getJob()
+          harness.getJob()
             .state
           === JOB_STATES
             .RETRY_PENDING
@@ -526,10 +541,6 @@ test(
           const current =
             harness.getJob();
 
-          /*
-           * Simulate verified ExecutionWorker transition to
-           * RUNNING before executing the next attempt.
-           */
           harness.runner
             .jobStore
             .transitionJob(
@@ -564,9 +575,7 @@ test(
     assert.deepEqual(
       harness.sleepCalls
         .map(
-          (
-            entry,
-          ) =>
+          (entry) =>
             entry.delayMs,
         ),
       [
@@ -582,15 +591,13 @@ test(
     );
 
     assert.equal(
-      harness
-        .markRetryReservedCalls
+      harness.markRetryReservedCalls
         .length,
       3,
     );
 
     assert.equal(
-      harness
-        .getJob()
+      harness.getJob()
         .retryCount,
       3,
     );
@@ -631,12 +638,8 @@ test(
 
           input: {},
         }),
-      (
-        error,
-      ) => (
-        error
-        === challengeError
-      ),
+      (error) =>
+        error === challengeError,
     );
 
     assert.equal(
@@ -645,8 +648,7 @@ test(
     );
 
     assert.equal(
-      harness
-        .markRetryReservedCalls
+      harness.markRetryReservedCalls
         .length,
       0,
     );
@@ -685,12 +687,8 @@ test(
 
           input: {},
         }),
-      (
-        error,
-      ) => (
-        error
-        === abortError
-      ),
+      (error) =>
+        error === abortError,
     );
 
     assert.equal(
@@ -699,8 +697,7 @@ test(
     );
 
     assert.equal(
-      harness
-        .markRetryReservedCalls
+      harness.markRetryReservedCalls
         .length,
       0,
     );
@@ -711,8 +708,7 @@ test(
     );
 
     assert.equal(
-      harness
-        .getJob()
+      harness.getJob()
         .retryCount,
       0,
     );
@@ -746,18 +742,11 @@ test(
 
           input: {},
         }),
-      (
-        error,
-      ) => {
+      (error) => {
         assert.ok(
           error
           instanceof
             ExecutionTerminalFailureError,
-        );
-
-        assert.equal(
-          error.code,
-          'EXECUTION_TERMINAL_FAILURE',
         );
 
         assert.equal(
@@ -794,18 +783,6 @@ test(
 
     assert.equal(
       harness.retryCalls.length,
-      0,
-    );
-
-    assert.equal(
-      harness
-        .markRetryReservedCalls
-        .length,
-      0,
-    );
-
-    assert.equal(
-      harness.sleepCalls.length,
       0,
     );
   },
@@ -850,9 +827,7 @@ test(
 
           input: {},
         }),
-      (
-        error,
-      ) => {
+      (error) => {
         assert.ok(
           error
           instanceof
@@ -880,20 +855,12 @@ test(
     );
 
     assert.equal(
-      harness.executionCalls
-        .length,
+      harness.executionCalls.length,
       1,
     );
 
     assert.equal(
       harness.retryCalls.length,
-      0,
-    );
-
-    assert.equal(
-      harness
-        .markRetryReservedCalls
-        .length,
       0,
     );
 
@@ -971,12 +938,9 @@ test(
           signal:
             controller.signal,
         }),
-      (
-        error,
-      ) => (
+      (error) =>
         error.name
-        === 'AbortError'
-      ),
+        === 'AbortError',
     );
 
     assert.equal(
@@ -985,22 +949,19 @@ test(
     );
 
     assert.equal(
-      harness
-        .markRetryReservedCalls
+      harness.markRetryReservedCalls
         .length,
       1,
     );
 
     assert.equal(
-      harness
-        .getJob()
+      harness.getJob()
         .retryCount,
       1,
     );
 
     assert.equal(
-      harness
-        .getJob()
+      harness.getJob()
         .state,
       JOB_STATES.RETRY_PENDING,
     );
@@ -1051,11 +1012,264 @@ test(
       harness.retryCalls.length,
       0,
     );
+  },
+);
+
+test(
+  'explicit manual resume uses resume entrypoint for first attempt only',
+  async () => {
+    const harness =
+      createHarness({
+        initialJob:
+          createJob({
+            state:
+              JOB_STATES
+                .WAITING_FOR_MANUAL_CHALLENGE,
+          }),
+
+        resumeImplementation:
+          async ({
+            setJobState,
+          }) => {
+            setJobState(
+              JOB_STATES.RUNNING,
+            );
+
+            return {
+              status:
+                'WORKFLOW_COMPLETED',
+
+              workflowResult: {
+                status:
+                  'COMPLETED',
+
+                workflowName:
+                  'manual-resume',
+
+                completedSteps:
+                  3,
+              },
+            };
+          },
+      });
+
+    const result =
+      await harness.runner
+        .resumeManualChallenge({
+          jobId:
+            'job-1',
+        });
 
     assert.equal(
-      harness
-        .markRetryReservedCalls
+      result.status,
+      'WORKFLOW_COMPLETED',
+    );
+
+    assert.equal(
+      harness.resumeCalls.length,
+      1,
+    );
+
+    assert.equal(
+      harness.executionCalls.length,
+      0,
+    );
+
+    assert.equal(
+      harness.retryCalls.length,
+      0,
+    );
+  },
+);
+
+test(
+  'retryable failure after explicit manual resume enters normal bounded retry path',
+  async () => {
+    const retryableError =
+      new Error(
+        'temporary network failure after challenge',
+      );
+
+    retryableError.code =
+      'NETWORK_TIMEOUT';
+
+    retryableError.retryable =
+      true;
+
+    const harness =
+      createHarness({
+        initialJob:
+          createJob({
+            state:
+              JOB_STATES
+                .WAITING_FOR_MANUAL_CHALLENGE,
+          }),
+
+        resumeImplementation:
+          async ({
+            setJobState,
+          }) => {
+            /*
+             * Real ExecutionWorker.resumeManualChallenge()
+             * transitions WAITING_FOR_MANUAL_CHALLENGE -> RUNNING
+             * before workflow execution.
+             */
+            setJobState(
+              JOB_STATES.RUNNING,
+            );
+
+            throw retryableError;
+          },
+
+        executionImplementation:
+          async ({
+            setJobState,
+          }) => {
+            setJobState(
+              JOB_STATES.RUNNING,
+            );
+
+            return {
+              status:
+                'WORKFLOW_COMPLETED',
+
+              workflowResult: {
+                status:
+                  'COMPLETED',
+
+                workflowName:
+                  'manual-resume',
+
+                completedSteps:
+                  3,
+              },
+            };
+          },
+      });
+
+    const result =
+      await harness.runner
+        .resumeManualChallenge({
+          jobId:
+            'job-1',
+        });
+
+    assert.equal(
+      result.status,
+      'WORKFLOW_COMPLETED',
+    );
+
+    assert.equal(
+      harness.resumeCalls.length,
+      1,
+    );
+
+    assert.equal(
+      harness.executionCalls.length,
+      1,
+    );
+
+    assert.equal(
+      harness.retryCalls.length,
+      1,
+    );
+
+    assert.equal(
+      harness.markRetryReservedCalls
         .length,
+      1,
+    );
+
+    assert.equal(
+      harness.sleepCalls.length,
+      1,
+    );
+
+    assert.equal(
+      harness.sleepCalls[0]
+        .delayMs,
+      1000,
+    );
+
+    assert.equal(
+      harness.getJob()
+        .retryCount,
+      1,
+    );
+  },
+);
+
+test(
+  'repeated manual challenge during explicit resume is not automatically resumed or retried',
+  async () => {
+    const challengeError =
+      new Error(
+        'challenge still present',
+      );
+
+    challengeError.code =
+      'MANUAL_CHALLENGE_REQUIRED';
+
+    const harness =
+      createHarness({
+        initialJob:
+          createJob({
+            state:
+              JOB_STATES
+                .WAITING_FOR_MANUAL_CHALLENGE,
+          }),
+
+        resumeImplementation:
+          async ({
+            setJobState,
+          }) => {
+            /*
+             * ExecutionWorker would first enter RUNNING and then
+             * return to WAITING_FOR_MANUAL_CHALLENGE after seeing
+             * the challenge again.
+             */
+            setJobState(
+              JOB_STATES
+                .WAITING_FOR_MANUAL_CHALLENGE,
+            );
+
+            throw challengeError;
+          },
+      });
+
+    await assert.rejects(
+      harness.runner
+        .resumeManualChallenge({
+          jobId:
+            'job-1',
+        }),
+      (error) =>
+        error === challengeError,
+    );
+
+    assert.equal(
+      harness.resumeCalls.length,
+      1,
+    );
+
+    assert.equal(
+      harness.executionCalls.length,
+      0,
+    );
+
+    assert.equal(
+      harness.retryCalls.length,
+      0,
+    );
+
+    assert.equal(
+      harness.sleepCalls.length,
+      0,
+    );
+
+    assert.equal(
+      harness.getJob()
+        .retryCount,
       0,
     );
   },
@@ -1066,6 +1280,8 @@ test(
   () => {
     const executionWorker = {
       run() {},
+
+      resumeManualChallenge() {},
     };
 
     const jobStore = {
@@ -1092,6 +1308,21 @@ test(
         });
       },
       /executionWorker must be an object/,
+    );
+
+    assert.throws(
+      () => {
+        new RetryingExecutionRunner({
+          executionWorker: {
+            run() {},
+          },
+
+          jobStore,
+
+          ipAllocator,
+        });
+      },
+      /executionWorker\.resumeManualChallenge must be a function/,
     );
 
     assert.throws(

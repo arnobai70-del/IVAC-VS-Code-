@@ -1,6 +1,13 @@
 const MANUAL_CHALLENGE_CODE =
   'MANUAL_CHALLENGE_REQUIRED';
 
+const SHUTDOWN_CODES =
+  new Set([
+    'PROCESS_SHUTDOWN',
+    'GRACEFUL_SHUTDOWN',
+    'SHUTDOWN_ABORT',
+  ]);
+
 function requireObject(
   value,
   name,
@@ -33,6 +40,22 @@ function requireFunction(
   return value;
 }
 
+function requireNonEmptyString(
+  value,
+  name,
+) {
+  if (
+    typeof value !== 'string'
+    || value.trim() === ''
+  ) {
+    throw new TypeError(
+      `${name} must be a non-empty string.`,
+    );
+  }
+
+  return value.trim();
+}
+
 function getErrorName(
   error,
 ) {
@@ -63,6 +86,30 @@ function getErrorCode(
   return null;
 }
 
+function isShutdownError(
+  error,
+) {
+  const name =
+    getErrorName(
+      error,
+    );
+
+  const code =
+    getErrorCode(
+      error,
+    );
+
+  return (
+    name === 'AbortError'
+    || (
+      code !== null
+      && SHUTDOWN_CODES.has(
+        code,
+      )
+    )
+  );
+}
+
 function requireExecutionHandoff(
   job,
 ) {
@@ -80,11 +127,6 @@ function requireExecutionHandoff(
     );
   }
 
-  /*
-   * executionInput is deliberately non-enumerable in
-   * PortalIntakeService, but normal property access must still
-   * expose it to this in-memory runtime handoff.
-   */
   requireObject(
     job.executionInput,
     'intake job executionInput',
@@ -93,29 +135,70 @@ function requireExecutionHandoff(
   return job;
 }
 
-/*
- * Bridges one completed Portal intake cycle to ExecutionWorker.
- *
- * Safety boundaries:
- *
- * - consumes only freshly created in-memory handoffs;
- * - never reacquires or replaces an IP;
- * - never persists executionInput;
- * - never serializes/logs executionInput;
- * - never logs password/phone/passport/document data;
- * - never retries a failed workflow automatically;
- * - one failed job does not cancel sibling jobs from the same
- *   already-consumed intake cycle;
- * - MANUAL_CHALLENGE_REQUIRED remains manual;
- * - stop() aborts workflow execution but never releases IPs;
- * - workflow success is not treated as terminal here;
- * - final-result capture/acknowledgement remains a separate
- *   lifecycle concern.
- *
- * The IntakeLoop already guarantees that onCycleResult callbacks
- * do not overlap. This class also rejects direct overlapping use
- * so that invariant remains explicit outside IntakeLoop.
- */
+function classifyExecutionError({
+  error,
+  signal,
+}) {
+  if (
+    getErrorCode(
+      error,
+    )
+    === MANUAL_CHALLENGE_CODE
+  ) {
+    return {
+      status:
+        'MANUAL_CHALLENGE',
+
+      errorName:
+        getErrorName(
+          error,
+        ),
+
+      errorCode:
+        getErrorCode(
+          error,
+        ),
+    };
+  }
+
+  if (
+    signal?.aborted === true
+    || isShutdownError(
+      error,
+    )
+  ) {
+    return {
+      status:
+        'ABORTED',
+
+      errorName:
+        getErrorName(
+          error,
+        ),
+
+      errorCode:
+        getErrorCode(
+          error,
+        ),
+    };
+  }
+
+  return {
+    status:
+      'FAILED',
+
+    errorName:
+      getErrorName(
+        error,
+      ),
+
+    errorCode:
+      getErrorCode(
+        error,
+      ),
+  };
+}
+
 export class IntakeExecutionHandler {
   constructor({
     executionWorker,
@@ -131,11 +214,18 @@ export class IntakeExecutionHandler {
       'executionWorker.run',
     );
 
+    requireFunction(
+      executionWorker.resumeManualChallenge,
+      'executionWorker.resumeManualChallenge',
+    );
+
     if (
       logger !== null
       && (
         typeof logger !== 'object'
-        || Array.isArray(logger)
+        || Array.isArray(
+          logger,
+        )
       )
     ) {
       throw new TypeError(
@@ -158,6 +248,12 @@ export class IntakeExecutionHandler {
     this.activeControllers =
       new Set();
 
+    this.activeJobs =
+      new Map();
+
+    this.activeTasks =
+      new Set();
+
     this.activePromise =
       null;
 
@@ -176,8 +272,120 @@ export class IntakeExecutionHandler {
     this.totalManualChallenges =
       0;
 
+    this.totalManualResumes =
+      0;
+
+    this.totalManualResumeCompleted =
+      0;
+
+    this.totalManualResumeFailed =
+      0;
+
+    this.totalManualResumeChallenges =
+      0;
+
+    this.totalManualResumeAborted =
+      0;
+
     this.lastSummary =
       null;
+
+    this.lastManualResume =
+      null;
+  }
+
+  assertJobAvailable(
+    jobId,
+  ) {
+    if (
+      this.activeJobs.has(
+        jobId,
+      )
+    ) {
+      throw new Error(
+        `Job ${jobId} already has an active execution.`,
+      );
+    }
+  }
+
+  runManaged({
+    jobId,
+    execute,
+  }) {
+    const normalizedJobId =
+      requireNonEmptyString(
+        jobId,
+        'jobId',
+      );
+
+    requireFunction(
+      execute,
+      'execute',
+    );
+
+    if (
+      this.stopped
+    ) {
+      throw new Error(
+        'Execution runtime is stopped and cannot admit new work.',
+      );
+    }
+
+    this.assertJobAvailable(
+      normalizedJobId,
+    );
+
+    const controller =
+      new AbortController();
+
+    this.activeControllers.add(
+      controller,
+    );
+
+    this.activeJobs.set(
+      normalizedJobId,
+      controller,
+    );
+
+    const task =
+      Promise.resolve()
+        .then(
+          () =>
+            execute(
+              controller.signal,
+            ),
+        )
+        .finally(
+          () => {
+            this.activeControllers
+              .delete(
+                controller,
+              );
+
+            if (
+              this.activeJobs.get(
+                normalizedJobId,
+              )
+              === controller
+            ) {
+              this.activeJobs
+                .delete(
+                  normalizedJobId,
+                );
+            }
+
+            this.activeTasks
+              .delete(
+                task,
+              );
+          },
+        );
+
+    this.activeTasks.add(
+      task,
+    );
+
+    return task;
   }
 
   async handleCycleResult(
@@ -203,15 +411,6 @@ export class IntakeExecutionHandler {
         ? result.jobs
         : [];
 
-    /*
-     * Shutdown may arrive after destructive intake has completed
-     * but before its callback begins.
-     *
-     * Do not start new workflow execution after stop. The newly
-     * created WAITING_FOR_IP jobs and their same-IP allocations
-     * remain durable for recovery; sensitive executionInput is
-     * intentionally not restart-recoverable.
-     */
     if (
       this.stopped
     ) {
@@ -228,6 +427,9 @@ export class IntakeExecutionHandler {
         manualChallenges:
           0,
 
+        aborted:
+          0,
+
         skippedAfterStop:
           jobs.length,
       };
@@ -240,18 +442,36 @@ export class IntakeExecutionHandler {
       };
     }
 
-    /*
-     * Validate the complete batch before admitting any workflow.
-     * A malformed internal handoff is a programming/integration
-     * error and should fail closed rather than partially execute
-     * the cycle.
-     */
+    const batchJobIds =
+      new Set();
+
     for (
       const job
       of jobs
     ) {
       requireExecutionHandoff(
         job,
+      );
+
+      const jobId =
+        job.jobId.trim();
+
+      if (
+        batchJobIds.has(
+          jobId,
+        )
+      ) {
+        throw new Error(
+          `Intake cycle contains duplicate job ${jobId}.`,
+        );
+      }
+
+      this.assertJobAvailable(
+        jobId,
+      );
+
+      batchJobIds.add(
+        jobId,
       );
     }
 
@@ -262,26 +482,26 @@ export class IntakeExecutionHandler {
       async (
         job,
       ) => {
-        const controller =
-          new AbortController();
-
-        this.activeControllers.add(
-          controller,
-        );
+        const jobId =
+          job.jobId.trim();
 
         try {
           const executionResult =
-            await this.executionWorker
-              .run({
-                jobId:
-                  job.jobId,
+            await this.runManaged({
+              jobId,
 
-                input:
-                  job.executionInput,
+              execute:
+                (signal) =>
+                  this.executionWorker
+                    .run({
+                      jobId,
 
-                signal:
-                  controller.signal,
-              });
+                      input:
+                        job.executionInput,
+
+                      signal,
+                    }),
+            });
 
           return {
             status:
@@ -290,36 +510,17 @@ export class IntakeExecutionHandler {
             executionResult,
           };
         } catch (error) {
-          return {
-            status:
-              getErrorCode(
-                error,
-              )
-                === MANUAL_CHALLENGE_CODE
-                ? 'MANUAL_CHALLENGE'
-                : (
-                    controller
-                      .signal
-                      .aborted
-                      ? 'ABORTED'
-                      : 'FAILED'
-                  ),
+          return classifyExecutionError({
+            error,
 
-            errorName:
-              getErrorName(
-                error,
-              ),
-
-            errorCode:
-              getErrorCode(
-                error,
-              ),
-          };
-        } finally {
-          this.activeControllers
-            .delete(
-              controller,
-            );
+            signal:
+              this.stopped
+                ? {
+                    aborted:
+                      true,
+                  }
+                : null,
+          });
         }
       };
 
@@ -423,11 +624,14 @@ export class IntakeExecutionHandler {
           executionCycle: {
             ...summary,
 
-            automaticRetry:
+            boundedRetry:
+              true,
+
+            manualAutoResume:
               false,
 
-            terminalization:
-              false,
+            finalizationBoundary:
+              true,
           },
         },
         'Fresh intake execution cycle completed.',
@@ -445,21 +649,150 @@ export class IntakeExecutionHandler {
     }
   }
 
+  async resumeManualChallenge({
+    jobId,
+  }) {
+    const normalizedJobId =
+      requireNonEmptyString(
+        jobId,
+        'jobId',
+      );
+
+    if (
+      this.stopped
+    ) {
+      throw new Error(
+        'Execution runtime is stopped and cannot resume a manual challenge.',
+      );
+    }
+
+    this.assertJobAvailable(
+      normalizedJobId,
+    );
+
+    this.totalManualResumes +=
+      1;
+
+    let outcome;
+
+    try {
+      const executionResult =
+        await this.runManaged({
+          jobId:
+            normalizedJobId,
+
+          execute:
+            (signal) =>
+              this.executionWorker
+                .resumeManualChallenge({
+                  jobId:
+                    normalizedJobId,
+
+                  signal,
+                }),
+        });
+
+      outcome = {
+        status:
+          'WORKFLOW_COMPLETED',
+
+        executionResult,
+      };
+
+      this.totalManualResumeCompleted +=
+        1;
+    } catch (error) {
+      outcome =
+        classifyExecutionError({
+          error,
+
+          signal:
+            this.stopped
+              ? {
+                  aborted:
+                    true,
+                }
+              : null,
+        });
+
+      if (
+        outcome.status
+        === 'MANUAL_CHALLENGE'
+      ) {
+        this.totalManualResumeChallenges +=
+          1;
+      } else if (
+        outcome.status
+        === 'ABORTED'
+      ) {
+        this.totalManualResumeAborted +=
+          1;
+      } else {
+        this.totalManualResumeFailed +=
+          1;
+      }
+    }
+
+    this.lastManualResume = {
+      status:
+        outcome.status,
+
+      errorName:
+        outcome.errorName
+        ?? null,
+
+      errorCode:
+        outcome.errorCode
+        ?? null,
+    };
+
+    this.logInfo(
+      {
+        manualChallengeResume: {
+          status:
+            outcome.status,
+
+          errorCode:
+            outcome.errorCode
+            ?? null,
+
+          automatic:
+            false,
+
+          sameProcessContextRequired:
+            true,
+
+          replacementIp:
+            false,
+        },
+      },
+      'Manual challenge resume attempt completed.',
+    );
+
+    return outcome;
+  }
+
   async stop() {
     this.stopped =
       true;
 
-    /*
-     * Abort only workflow execution.
-     *
-     * ExecutionWorker deliberately keeps interrupted jobs
-     * non-terminal and does not release their IP allocation.
-     */
     for (
       const controller
       of this.activeControllers
     ) {
       controller.abort();
+    }
+
+    const activeTasks = [
+      ...this.activeTasks,
+    ];
+
+    if (
+      activeTasks.length > 0
+    ) {
+      await Promise.allSettled(
+        activeTasks,
+      );
     }
 
     if (
@@ -483,6 +816,10 @@ export class IntakeExecutionHandler {
         this.activeControllers
           .size,
 
+      activeJobs:
+        this.activeJobs
+          .size,
+
       completedCycles:
         this.completedCycles,
 
@@ -497,6 +834,30 @@ export class IntakeExecutionHandler {
 
       totalManualChallenges:
         this.totalManualChallenges,
+
+      manualResume: {
+        total:
+          this.totalManualResumes,
+
+        completed:
+          this.totalManualResumeCompleted,
+
+        failed:
+          this.totalManualResumeFailed,
+
+        manualChallenges:
+          this.totalManualResumeChallenges,
+
+        aborted:
+          this.totalManualResumeAborted,
+
+        last:
+          this.lastManualResume
+            ? {
+                ...this.lastManualResume,
+              }
+            : null,
+      },
 
       lastCycle:
         this.lastSummary
@@ -513,7 +874,7 @@ export class IntakeExecutionHandler {
   ) {
     if (
       typeof this.logger?.info
-        === 'function'
+      === 'function'
     ) {
       this.logger.info(
         fields,

@@ -229,6 +229,83 @@ function publicDocument(
   };
 }
 
+function findResumeIndex({
+  steps,
+  jobContext,
+}) {
+  let firstIncompleteIndex =
+    steps.length;
+
+  for (
+    let index = 0;
+    index < steps.length;
+    index += 1
+  ) {
+    if (
+      !jobContext.hasResponse(
+        steps[index].id,
+      )
+    ) {
+      firstIncompleteIndex =
+        index;
+
+      break;
+    }
+  }
+
+  /*
+   * Completed workflow responses must form one contiguous prefix.
+   *
+   * If an incomplete step appears before a later completed step,
+   * the in-memory execution state is inconsistent. Fail closed
+   * rather than skipping around potentially destructive steps.
+   */
+  for (
+    let index =
+      firstIncompleteIndex + 1;
+    index < steps.length;
+    index += 1
+  ) {
+    if (
+      jobContext.hasResponse(
+        steps[index].id,
+      )
+    ) {
+      throw new WorkflowStepError(
+        'Workflow resume state contains non-contiguous completed steps.',
+      );
+    }
+  }
+
+  if (
+    firstIncompleteIndex
+    < steps.length
+    && jobContext.currentStep !== null
+    && jobContext.currentStep !== undefined
+    && jobContext.currentStep
+      !== steps[
+        firstIncompleteIndex
+      ].id
+  ) {
+    throw new WorkflowStepError(
+      'Workflow resume state does not match the current step.',
+    );
+  }
+
+  if (
+    firstIncompleteIndex
+    === steps.length
+    && jobContext.currentStep !== null
+    && jobContext.currentStep !== undefined
+  ) {
+    throw new WorkflowStepError(
+      'Workflow is fully completed but still has an active current step.',
+    );
+  }
+
+  return firstIncompleteIndex;
+}
+
 export class WorkflowEngine {
   constructor({
     targetHttpClient,
@@ -316,7 +393,8 @@ export class WorkflowEngine {
       throw new WorkflowConfigError(
         'Workflow failed runtime validation.',
         {
-          cause: error,
+          cause:
+            error,
         },
       );
     }
@@ -347,19 +425,55 @@ export class WorkflowEngine {
       || typeof jobContext
         .setResponse
         !== 'function'
+      || typeof jobContext
+        .hasResponse
+        !== 'function'
     ) {
       throw new TypeError(
-        'A valid jobContext is required.',
+        'A valid resumable jobContext is required.',
       );
     }
 
+    const resumeIndex =
+      findResumeIndex({
+        steps:
+          validatedWorkflow
+            .steps,
+
+        jobContext,
+      });
+
+    /*
+     * Responses are the in-memory completion markers.
+     *
+     * Only a contiguous completed prefix may be skipped. The first
+     * step without a response is executed again. Therefore:
+     *
+     * - successful HTTP steps are not replayed;
+     * - a challenged/failed HTTP step is re-attempted;
+     * - completed OTP prepare/wait steps are not replayed;
+     * - completed document preparation is not repeated;
+     * - an incomplete documents.upload step re-enters its existing
+     *   per-document upload markers and uploads only missing files.
+     *
+     * These markers are memory-only. No restart-resume guarantee is
+     * made.
+     */
     let completedSteps =
-      0;
+      resumeIndex;
 
     for (
-      const step
-      of validatedWorkflow.steps
+      let index =
+        resumeIndex;
+      index
+        < validatedWorkflow
+          .steps.length;
+      index += 1
     ) {
+      const step =
+        validatedWorkflow
+          .steps[index];
+
       assertNotAborted(
         signal,
       );

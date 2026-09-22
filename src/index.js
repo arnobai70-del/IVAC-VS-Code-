@@ -482,6 +482,23 @@ export async function main() {
           unverifiedRemoteIdempotency:
             true,
         },
+
+        manualChallengeRecovery: {
+          automaticResume:
+            false,
+
+          restartResume:
+            false,
+
+          sameProcessContextRequired:
+            true,
+
+          originalSessionRequired:
+            true,
+
+          sameIpRequired:
+            true,
+        },
       },
       'Durable restart recovery completed.',
     );
@@ -567,6 +584,10 @@ export async function main() {
      *
      * It activates only the intake-bound allocation and creates
      * the per-job memory-only session/context.
+     *
+     * Manual challenge continuation can only re-enter through
+     * ExecutionWorker.resumeManualChallenge(), which requires the
+     * original same-process JobContext/session/allocation.
      */
     const executionWorker =
       new ExecutionWorker({
@@ -624,6 +645,9 @@ export async function main() {
      *
      * Manual challenge and shutdown are never automatically
      * retried.
+     *
+     * After an explicit manual resume, a later distinct retryable
+     * execution failure may enter the normal bounded retry path.
      */
     const retryingExecutionRunner =
       new RetryingExecutionRunner({
@@ -646,6 +670,10 @@ export async function main() {
      *
      * NON_RETRYABLE / EXHAUSTED execution failure becomes
      * FAILED_FINAL only after verified Portal acknowledgement.
+     *
+     * Explicit manual resume passes through the same finalization
+     * boundary only after workflow execution reaches a terminal
+     * execution outcome.
      */
     const finalizingExecutionRunner =
       new FinalizingExecutionRunner({
@@ -655,6 +683,15 @@ export async function main() {
         finalResultService,
       });
 
+    /*
+     * Admission and shutdown ownership for both:
+     *
+     * - fresh intake execution;
+     * - explicit same-process manual challenge resume.
+     *
+     * There is intentionally no automatic resume path and no
+     * dashboard mutation endpoint.
+     */
     intakeExecutionHandler =
       new IntakeExecutionHandler({
         executionWorker:
@@ -751,6 +788,12 @@ export async function main() {
           executionInputPersistence:
             false,
 
+          completedStepReplay:
+            false,
+
+          partialDocumentUploadReuse:
+            true,
+
           boundedRetry:
             true,
 
@@ -765,6 +808,38 @@ export async function main() {
 
           manualChallengeRetry:
             false,
+
+          manualChallengeResume: {
+            automatic:
+              false,
+
+            explicitOnly:
+              true,
+
+            sameProcessOnly:
+              true,
+
+            originalContextRequired:
+              true,
+
+            originalSessionRequired:
+              true,
+
+            sameIpRequired:
+              true,
+
+            replacementIp:
+              false,
+
+            restartRecoverable:
+              false,
+
+            dashboardMutationEndpoint:
+              false,
+
+            externalControlConfigured:
+              false,
+          },
 
           shutdownRetry:
             false,
@@ -839,6 +914,9 @@ export async function main() {
 
           restartBlindUploadReplay:
             false,
+
+          sameProcessCompletedUploadReuse:
+            true,
         },
       },
       'Document integration safety boundaries configured.',
@@ -890,6 +968,15 @@ export async function main() {
             true,
 
           challengeBypass:
+            false,
+
+          completedStepResume:
+            true,
+
+          nonContiguousResumeState:
+            'FAIL_CLOSED',
+
+          restartResume:
             false,
         },
       },
@@ -1015,6 +1102,9 @@ export async function main() {
 
             loopbackOnly:
               true,
+
+            mutationEndpoints:
+              false,
           },
         },
         'Operational dashboard API is disabled.',
@@ -1030,9 +1120,10 @@ export async function main() {
             /*
              * Stop workflow admission first.
              *
-             * Active workflow execution or retry wait receives an
-             * abort signal. Neither path releases a non-terminal
-             * IP or consumes an additional retry after shutdown.
+             * Active fresh execution, explicit manual resume, or
+             * retry wait receives an abort signal. No path releases
+             * a non-terminal IP or consumes a fresh retry because
+             * of shutdown.
              */
             if (
               intakeExecutionHandler
@@ -1122,6 +1213,9 @@ export async function main() {
 
             automaticDestructiveIntakeRetry:
               false,
+
+            automaticManualChallengeResume:
+              false,
           },
         },
         'Portal intake and execution loop enabled.',
@@ -1144,6 +1238,9 @@ export async function main() {
 
             explicitOptInRequired:
               true,
+
+            automaticManualChallengeResume:
+              false,
           },
         },
         'Portal intake loop is disabled.',
@@ -1160,7 +1257,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          14,
+          15,
 
         environment:
           config.app
@@ -1187,6 +1284,9 @@ export async function main() {
 
           blindFailureRetry:
             false,
+
+          automaticManualChallengeResume:
+            false,
         },
 
         execution: {
@@ -1211,6 +1311,12 @@ export async function main() {
           challengeBypass:
             false,
 
+          completedStepReplay:
+            false,
+
+          partialDocumentUploadReuse:
+            true,
+
           boundedRetry:
             true,
 
@@ -1218,6 +1324,21 @@ export async function main() {
             DEFAULT_MAX_RETRIES,
 
           manualChallengeRetry:
+            false,
+
+          manualChallengeResume:
+            true,
+
+          manualChallengeResumeExplicitOnly:
+            true,
+
+          manualChallengeResumeSameProcessOnly:
+            true,
+
+          manualChallengeResumeRestartRecoverable:
+            false,
+
+          manualChallengeExternalControlConfigured:
             false,
 
           shutdownRetry:
@@ -1249,6 +1370,12 @@ export async function main() {
           executionInputPersistence:
             false,
 
+          manualChallengeAutomaticResume:
+            false,
+
+          manualChallengeRestartResume:
+            false,
+
           terminalOnlyIpRelease:
             true,
         },
@@ -1271,6 +1398,9 @@ export async function main() {
           abortsActiveWorkflow:
             true,
 
+          abortsManualChallengeResume:
+            true,
+
           abortsRetryWait:
             true,
 
@@ -1283,7 +1413,7 @@ export async function main() {
 
     return {
       phase:
-        14,
+        15,
 
       recovery:
         summarizeRecovery(
@@ -1303,6 +1433,35 @@ export async function main() {
       execution:
         intakeExecutionHandler
           .getStatus(),
+
+      manualChallenge: {
+        resumeAvailableWithinProcess:
+          true,
+
+        explicitOnly:
+          true,
+
+        automaticResume:
+          false,
+
+        restartRecoverable:
+          false,
+
+        sameProcessContextRequired:
+          true,
+
+        sameSessionRequired:
+          true,
+
+        sameIpRequired:
+          true,
+
+        externalControlConfigured:
+          false,
+
+        dashboardMutationEndpoint:
+          false,
+      },
 
       gracefulShutdown,
     };

@@ -104,6 +104,20 @@ function assertRunnableState(
   }
 }
 
+function assertManualResumeState(
+  job,
+) {
+  if (
+    job.state
+    !== JOB_STATES
+      .WAITING_FOR_MANUAL_CHALLENGE
+  ) {
+    throw new Error(
+      `Job ${job.id} cannot resume a manual challenge from state ${job.state}.`,
+    );
+  }
+}
+
 function assertSameAllocation(
   before,
   after,
@@ -124,6 +138,53 @@ function assertSameAllocation(
   }
 }
 
+function assertContextIdentity(
+  jobContext,
+  jobId,
+  allocation,
+) {
+  if (
+    jobContext.job?.id
+    !== jobId
+  ) {
+    throw new Error(
+      'Existing job context belongs to another job.',
+    );
+  }
+
+  if (
+    jobContext.allocation
+      ?.allocationId
+    !== allocation.allocationId
+    || jobContext.allocation
+      ?.jobId
+      !== allocation.jobId
+    || jobContext.allocation
+      ?.ip
+      !== allocation.ip
+    || jobContext.allocation
+      ?.port
+      !== allocation.port
+  ) {
+    throw new Error(
+      'Existing job context does not match the live allocation.',
+    );
+  }
+
+  if (
+    jobContext.session
+      ?.jobId
+    !== jobId
+    || jobContext.session
+      ?.allocationId
+      !== allocation.allocationId
+  ) {
+    throw new Error(
+      'Existing job context does not match the live session.',
+    );
+  }
+}
+
 /*
  * Runs one workflow execution against an already-bound job/IP.
  *
@@ -132,8 +193,13 @@ function assertSameAllocation(
  * - this worker NEVER acquires a replacement IP;
  * - the intake-bound allocation must already exist;
  * - activation keeps that exact allocation/IP;
+ * - normal run() never accepts WAITING_FOR_MANUAL_CHALLENGE;
+ * - manual challenge resume requires the explicit
+ *   resumeManualChallenge() method;
+ * - manual resume requires the original in-memory JobContext,
+ *   session, cookies, input, responses, and document state;
+ * - restart therefore cannot silently resume a manual challenge;
  * - retry scheduling is not performed here;
- * - retry limits remain the recovery/retry-policy concern;
  * - non-terminal errors never release an IP;
  * - shutdown/abort never releases an IP;
  * - human challenges become WAITING_FOR_MANUAL_CHALLENGE;
@@ -144,12 +210,6 @@ function assertSameAllocation(
  *   to survive restart;
  * - Portal input is accepted only as in-memory JobContext input
  *   and is never persisted by this worker.
- *
- * executeWorkflow is intentionally injected. Construction of
- * per-job TargetHttpClient, OTP service, document service, and
- * WorkflowEngine is a separate integration concern and must use
- * their verified existing contracts rather than being guessed
- * here.
  */
 export class ExecutionWorker {
   constructor({
@@ -224,8 +284,8 @@ export class ExecutionWorker {
      * JobContext is intentionally memory-only.
      *
      * Reusing it within one process preserves per-job OTP,
-     * responses, prepared documents, and document upload state
-     * across an explicitly scheduled same-process retry.
+     * responses, prepared documents, document upload state, and
+     * manual-challenge resume position.
      *
      * Nothing in this map is restart-recoverable.
      */
@@ -234,6 +294,137 @@ export class ExecutionWorker {
 
     this.inFlight =
       new Set();
+  }
+
+  async executeRunningContext({
+    jobId,
+    runningJob,
+    activeAllocation,
+    jobContext,
+    signal,
+  }) {
+    jobContext.job =
+      runningJob;
+
+    jobContext.allocation =
+      activeAllocation;
+
+    jobContext.setRetryState({
+      attempt:
+        runningJob.retryCount,
+
+      lastErrorCode:
+        null,
+    });
+
+    let workflowResult;
+
+    try {
+      workflowResult =
+        await this.executeWorkflow({
+          jobContext,
+          signal,
+        });
+    } catch (error) {
+      /*
+       * Shutdown is deliberately non-terminal.
+       *
+       * GracefulShutdown owns session/dispatcher cleanup and
+       * durable restart recovery owns the interrupted RUNNING
+       * state. The IP remains attached to this job.
+       */
+      if (
+        isAbortRequested(
+          signal,
+        )
+      ) {
+        throw error;
+      }
+
+      /*
+       * Human/anti-bot challenges must never be bypassed or
+       * automatically retried.
+       *
+       * Persist only the bounded error code plus a fixed safe
+       * message. Never persist challenge HTML, cookies, OTPs,
+       * request bodies, or arbitrary error text.
+       */
+      if (
+        isManualChallenge(
+          error,
+        )
+      ) {
+        const latestJob =
+          this.jobStore
+            .getJobById(
+              jobId,
+            );
+
+        if (
+          latestJob?.state
+          === JOB_STATES.RUNNING
+        ) {
+          this.jobStore
+            .transitionJob(
+              jobId,
+              JOB_STATES
+                .WAITING_FOR_MANUAL_CHALLENGE,
+              {
+                currentStep:
+                  jobContext
+                    .currentStep
+                  ?? undefined,
+
+                failureCode:
+                  MANUAL_CHALLENGE_CODE,
+
+                failureMessage:
+                  'Manual challenge handling is required.',
+
+                expectedVersion:
+                  latestJob.version,
+              },
+            );
+        }
+
+        throw error;
+      }
+
+      /*
+       * Other failures remain RUNNING here.
+       *
+       * RetryingExecutionRunner owns retry classification,
+       * RETRY_PENDING, retry budget, and same-IP reservation.
+       */
+      throw error;
+    }
+
+    jobContext.setCurrentStep(
+      null,
+    );
+
+    jobContext.setResult(
+      workflowResult,
+    );
+
+    /*
+     * Do not transition RUNNING -> COMPLETED here.
+     *
+     * Terminal state and IP release happen only through the
+     * verified final-result lifecycle.
+     */
+    return {
+      status:
+        'WORKFLOW_COMPLETED',
+
+      jobId,
+
+      allocationId:
+        activeAllocation
+          .allocationId,
+
+      workflowResult,
+    };
   }
 
   async run({
@@ -284,6 +475,12 @@ export class ExecutionWorker {
       );
     }
 
+    /*
+     * Deliberately excludes WAITING_FOR_MANUAL_CHALLENGE.
+     *
+     * A human challenge can only continue through the explicit
+     * resumeManualChallenge() entrypoint below.
+     */
     assertRunnableState(
       initialJob,
     );
@@ -368,25 +565,21 @@ export class ExecutionWorker {
          * A same-process retry may reuse only the same allocation
          * and the same in-memory session identity.
          */
+        assertContextIdentity(
+          jobContext,
+          normalizedJobId,
+          activeAllocation,
+        );
+
         if (
-          jobContext.allocation
-            .allocationId
-          !== activeAllocation
-            .allocationId
-          || jobContext.session
+          jobContext.session
             .sessionId
-            !== session.sessionId
+          !== session.sessionId
         ) {
           throw new Error(
-            'Existing job context does not match the active session/allocation.',
+            'Existing job context does not match the active session.',
           );
         }
-
-        jobContext.job =
-          runningJob;
-
-        jobContext.allocation =
-          activeAllocation;
       } else {
         jobContext =
           new JobContext({
@@ -413,129 +606,163 @@ export class ExecutionWorker {
         );
       }
 
-      jobContext.setRetryState({
-        attempt:
-          runningJob.retryCount,
-
-        lastErrorCode:
-          null,
-      });
-
-      let workflowResult;
-
-      try {
-        workflowResult =
-          await this.executeWorkflow({
-            jobContext,
-            signal,
-          });
-      } catch (error) {
-        /*
-         * Shutdown is deliberately non-terminal.
-         *
-         * GracefulShutdown owns session/dispatcher cleanup and
-         * durable restart recovery owns the interrupted RUNNING
-         * state. The IP remains attached to this job.
-         */
-        if (
-          isAbortRequested(
-            signal,
-          )
-        ) {
-          throw error;
-        }
-
-        /*
-         * Human/anti-bot challenges must never be bypassed or
-         * automatically retried.
-         *
-         * Persist only the bounded error code plus a fixed safe
-         * message. Never persist challenge HTML, cookies, OTPs,
-         * request bodies, or arbitrary error text.
-         */
-        if (
-          isManualChallenge(
-            error,
-          )
-        ) {
-          const latestJob =
-            this.jobStore
-              .getJobById(
-                normalizedJobId,
-              );
-
-          if (
-            latestJob?.state
-            === JOB_STATES.RUNNING
-          ) {
-            this.jobStore
-              .transitionJob(
-                normalizedJobId,
-                JOB_STATES
-                  .WAITING_FOR_MANUAL_CHALLENGE,
-                {
-                  currentStep:
-                    jobContext
-                      .currentStep
-                    ?? undefined,
-
-                  failureCode:
-                    MANUAL_CHALLENGE_CODE,
-
-                  failureMessage:
-                    'Manual challenge handling is required.',
-
-                  expectedVersion:
-                    latestJob.version,
-                },
-              );
-          }
-
-          throw error;
-        }
-
-        /*
-         * Other failures are intentionally not converted into a
-         * retry or terminal state here.
-         *
-         * The existing bounded retry policy must classify them.
-         * Until that policy is integrated, leaving RUNNING intact
-         * is safer than inventing retryability or prematurely
-         * releasing the IP. Restart recovery can safely recognize
-         * the interrupted RUNNING job.
-         */
-        throw error;
-      }
-
-      jobContext.setCurrentStep(
-        null,
-      );
-
-      jobContext.setResult(
-        workflowResult,
-      );
-
-      /*
-       * Do not transition RUNNING -> COMPLETED here.
-       *
-       * Phase 9 established that terminal state and IP release
-       * happen only after the existing final-result flow has
-       * durably captured and, where required, acknowledged the
-       * result.
-       */
-      return {
-        status:
-          'WORKFLOW_COMPLETED',
-
+      return await this.executeRunningContext({
         jobId:
           normalizedJobId,
 
-        allocationId:
-          activeAllocation
-            .allocationId,
+        runningJob,
 
-        workflowResult,
-      };
+        activeAllocation,
+
+        jobContext,
+
+        signal,
+      });
+    } finally {
+      this.inFlight.delete(
+        normalizedJobId,
+      );
+    }
+  }
+
+  /*
+   * Explicit same-process manual-challenge resume.
+   *
+   * This method is intentionally separate from run().
+   *
+   * It cannot reconstruct input, cookies, OTP state, responses,
+   * prepared documents, or upload markers after restart. If the
+   * original JobContext is gone, resume fails closed.
+   *
+   * It also does not create a fresh session. A challenge must be
+   * resumed only inside the exact original session/context.
+   */
+  async resumeManualChallenge({
+    jobId,
+    signal = null,
+  }) {
+    const normalizedJobId =
+      requireNonEmptyString(
+        jobId,
+        'jobId',
+      );
+
+    if (
+      this.inFlight.has(
+        normalizedJobId,
+      )
+    ) {
+      throw new Error(
+        `Job ${normalizedJobId} already has an in-flight execution.`,
+      );
+    }
+
+    const initialJob =
+      this.jobStore
+        .getJobById(
+          normalizedJobId,
+        );
+
+    if (!initialJob) {
+      throw new Error(
+        `Job ${normalizedJobId} does not exist.`,
+      );
+    }
+
+    if (
+      isTerminalJobState(
+        initialJob.state,
+      )
+    ) {
+      throw new Error(
+        `Terminal job ${normalizedJobId} cannot resume a manual challenge.`,
+      );
+    }
+
+    assertManualResumeState(
+      initialJob,
+    );
+
+    /*
+     * The in-memory context is the hard restart boundary.
+     *
+     * No context means the process restarted or resources were
+     * otherwise lost. Never fabricate a new credential/session
+     * context for a manual challenge.
+     */
+    const jobContext =
+      this.contexts.get(
+        normalizedJobId,
+      );
+
+    if (!jobContext) {
+      throw new Error(
+        `Job ${normalizedJobId} cannot resume manual challenge because its in-memory execution context is unavailable.`,
+      );
+    }
+
+    const liveAllocation =
+      this.ipAllocator
+        .getActiveForJob(
+          normalizedJobId,
+        );
+
+    if (!liveAllocation) {
+      throw new Error(
+        `Job ${normalizedJobId} cannot resume manual challenge without its live IP allocation.`,
+      );
+    }
+
+    if (
+      liveAllocation.jobId
+      !== normalizedJobId
+    ) {
+      throw new Error(
+        'Live allocation belongs to another job.',
+      );
+    }
+
+    /*
+     * Manual challenge handling must remain on the exact same
+     * allocation and exact same memory-only session.
+     *
+     * No acquireForJob(), replacement IP, or new session occurs.
+     */
+    assertContextIdentity(
+      jobContext,
+      normalizedJobId,
+      liveAllocation,
+    );
+
+    this.inFlight.add(
+      normalizedJobId,
+    );
+
+    try {
+      const runningJob =
+        this.jobStore
+          .transitionJob(
+            normalizedJobId,
+            JOB_STATES.RUNNING,
+            {
+              expectedVersion:
+                initialJob.version,
+            },
+          );
+
+      return await this.executeRunningContext({
+        jobId:
+          normalizedJobId,
+
+        runningJob,
+
+        activeAllocation:
+          liveAllocation,
+
+        jobContext,
+
+        signal,
+      });
     } finally {
       this.inFlight.delete(
         normalizedJobId,

@@ -92,31 +92,79 @@ function createCycleResult(
   };
 }
 
+function createExecutionWorker({
+  run =
+    async ({
+      jobId,
+    }) => ({
+      status:
+        'WORKFLOW_COMPLETED',
+
+      jobId,
+    }),
+
+  resumeManualChallenge =
+    async ({
+      jobId,
+    }) => ({
+      status:
+        'FINALIZED',
+
+      outcome:
+        'SUCCESS',
+
+      jobId,
+    }),
+} = {}) {
+  return {
+    run,
+
+    resumeManualChallenge,
+  };
+}
+
+function createAbortError() {
+  const error =
+    new Error(
+      'aborted',
+    );
+
+  error.name =
+    'AbortError';
+
+  error.code =
+    'SHUTDOWN_ABORT';
+
+  return error;
+}
+
 test(
   'fresh intake jobs are handed to execution worker with memory-only input',
   async () => {
     const calls = [];
 
-    const executionWorker = {
-      async run({
-        jobId,
-        input,
-        signal,
-      }) {
-        calls.push({
-          jobId,
-          input,
-          signal,
-        });
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async ({
+            jobId,
+            input,
+            signal,
+          }) => {
+            calls.push({
+              jobId,
+              input,
+              signal,
+            });
 
-        return {
-          status:
-            'WORKFLOW_COMPLETED',
+            return {
+              status:
+                'WORKFLOW_COMPLETED',
 
-          jobId,
-        };
-      },
-    };
+              jobId,
+            };
+          },
+      });
 
     const handler =
       new IntakeExecutionHandler({
@@ -191,22 +239,24 @@ test(
     const seen =
       new Map();
 
-    const executionWorker = {
-      async run({
-        jobId,
-        input,
-      }) {
-        seen.set(
-          jobId,
-          input,
-        );
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async ({
+            jobId,
+            input,
+          }) => {
+            seen.set(
+              jobId,
+              input,
+            );
 
-        return {
-          status:
-            'WORKFLOW_COMPLETED',
-        };
-      },
-    };
+            return {
+              status:
+                'WORKFLOW_COMPLETED',
+            };
+          },
+      });
 
     const handler =
       new IntakeExecutionHandler({
@@ -281,34 +331,37 @@ test(
   async () => {
     const completed = [];
 
-    const executionWorker = {
-      async run({
-        jobId,
-      }) {
-        if (
-          jobId === 'job-1'
-        ) {
-          const error =
-            new Error(
-              'temporary failure',
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async ({
+            jobId,
+          }) => {
+            if (
+              jobId
+              === 'job-1'
+            ) {
+              const error =
+                new Error(
+                  'temporary failure',
+                );
+
+              error.code =
+                'TEMPORARY_FAILURE';
+
+              throw error;
+            }
+
+            completed.push(
+              jobId,
             );
 
-          error.code =
-            'TEMPORARY_FAILURE';
-
-          throw error;
-        }
-
-        completed.push(
-          jobId,
-        );
-
-        return {
-          status:
-            'WORKFLOW_COMPLETED',
-        };
-      },
-    };
+            return {
+              status:
+                'WORKFLOW_COMPLETED',
+            };
+          },
+      });
 
     const handler =
       new IntakeExecutionHandler({
@@ -361,27 +414,42 @@ test(
 );
 
 test(
-  'manual challenge is counted separately and is not retried',
+  'manual challenge is counted separately and normal intake never calls resume entrypoint',
   async () => {
-    let calls =
+    let runCalls =
       0;
 
-    const executionWorker = {
-      async run() {
-        calls +=
-          1;
+    let resumeCalls =
+      0;
 
-        const error =
-          new Error(
-            'manual handling required',
-          );
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async () => {
+            runCalls +=
+              1;
 
-        error.code =
-          'MANUAL_CHALLENGE_REQUIRED';
+            const error =
+              new Error(
+                'manual handling required',
+              );
 
-        throw error;
-      },
-    };
+            error.code =
+              'MANUAL_CHALLENGE_REQUIRED';
+
+            throw error;
+          },
+
+        resumeManualChallenge:
+          async () => {
+            resumeCalls +=
+              1;
+
+            throw new Error(
+              'must not auto-resume',
+            );
+          },
+      });
 
     const handler =
       new IntakeExecutionHandler({
@@ -397,8 +465,13 @@ test(
         );
 
     assert.equal(
-      calls,
+      runCalls,
       1,
+    );
+
+    assert.equal(
+      resumeCalls,
+      0,
     );
 
     assert.equal(
@@ -424,7 +497,7 @@ test(
 );
 
 test(
-  'stop aborts active workflow execution and waits for it to settle',
+  'stop aborts active intake workflow execution and waits for it to settle',
   async () => {
     let receivedSignal =
       null;
@@ -439,64 +512,53 @@ test(
         },
       );
 
-    const executionWorker = {
-      async run({
-        signal,
-      }) {
-        receivedSignal =
-          signal;
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async ({
+            signal,
+          }) => {
+            receivedSignal =
+              signal;
 
-        executionStarted();
+            executionStarted();
 
-        await new Promise(
-          (
-            resolve,
-            reject,
-          ) => {
-            if (
-              signal.aborted
-            ) {
-              const error =
-                new Error(
-                  'aborted',
-                );
-
-              error.name =
-                'AbortError';
-
-              reject(
-                error,
-              );
-
-              return;
-            }
-
-            signal.addEventListener(
-              'abort',
-              () => {
-                const error =
-                  new Error(
-                    'aborted',
+            await new Promise(
+              (
+                resolve,
+                reject,
+              ) => {
+                if (
+                  signal.aborted
+                ) {
+                  reject(
+                    createAbortError(),
                   );
 
-                error.name =
-                  'AbortError';
+                  return;
+                }
 
-                reject(
-                  error,
+                signal.addEventListener(
+                  'abort',
+                  () => {
+                    reject(
+                      createAbortError(),
+                    );
+                  },
+                  {
+                    once:
+                      true,
+                  },
                 );
               },
-              {
-                once:
-                  true,
-              },
             );
-          },
-        );
 
-        resolve();
-      },
-    };
+            return {
+              status:
+                'WORKFLOW_COMPLETED',
+            };
+          },
+      });
 
     const handler =
       new IntakeExecutionHandler({
@@ -549,6 +611,11 @@ test(
       status.activeExecutions,
       0,
     );
+
+    assert.equal(
+      status.activeJobs,
+      0,
+    );
   },
 );
 
@@ -558,17 +625,19 @@ test(
     let calls =
       0;
 
-    const executionWorker = {
-      async run() {
-        calls +=
-          1;
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async () => {
+            calls +=
+              1;
 
-        return {
-          status:
-            'WORKFLOW_COMPLETED',
-        };
-      },
-    };
+            return {
+              status:
+                'WORKFLOW_COMPLETED',
+            };
+          },
+      });
 
     const handler =
       new IntakeExecutionHandler({
@@ -616,12 +685,14 @@ test(
     let calls =
       0;
 
-    const executionWorker = {
-      async run() {
-        calls +=
-          1;
-      },
-    };
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async () => {
+            calls +=
+              1;
+          },
+      });
 
     const handler =
       new IntakeExecutionHandler({
@@ -661,6 +732,48 @@ test(
 );
 
 test(
+  'duplicate job IDs in one intake cycle fail closed before execution starts',
+  async () => {
+    let calls =
+      0;
+
+    const handler =
+      new IntakeExecutionHandler({
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => {
+                calls +=
+                  1;
+              },
+          }),
+      });
+
+    await assert.rejects(
+      handler.handleCycleResult(
+        createCycleResult([
+          createJob({
+            jobId:
+              'job-1',
+          }),
+
+          createJob({
+            jobId:
+              'job-1',
+          }),
+        ]),
+      ),
+      /Intake cycle contains duplicate job job-1/,
+    );
+
+    assert.equal(
+      calls,
+      0,
+    );
+  },
+);
+
+test(
   'overlapping direct cycle handling is rejected',
   async () => {
     let releaseFirst;
@@ -683,18 +796,20 @@ test(
         },
       );
 
-    const executionWorker = {
-      async run() {
-        firstStarted();
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async () => {
+            firstStarted();
 
-        await firstRun;
+            await firstRun;
 
-        return {
-          status:
-            'WORKFLOW_COMPLETED',
-        };
-      },
-    };
+            return {
+              status:
+                'WORKFLOW_COMPLETED',
+            };
+          },
+      });
 
     const handler =
       new IntakeExecutionHandler({
@@ -725,7 +840,444 @@ test(
 );
 
 test(
-  'logger receives only bounded summary data',
+  'explicit manual resume uses only resume entrypoint and accepts no execution input',
+  async () => {
+    let runCalls =
+      0;
+
+    const resumeCalls = [];
+
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async () => {
+            runCalls +=
+              1;
+
+            throw new Error(
+              'normal run must not be used',
+            );
+          },
+
+        resumeManualChallenge:
+          async ({
+            jobId,
+            signal,
+          }) => {
+            resumeCalls.push({
+              jobId,
+              signal,
+            });
+
+            return {
+              status:
+                'FINALIZED',
+
+              outcome:
+                'SUCCESS',
+
+              jobId,
+            };
+          },
+      });
+
+    const handler =
+      new IntakeExecutionHandler({
+        executionWorker,
+      });
+
+    const outcome =
+      await handler
+        .resumeManualChallenge({
+          jobId:
+            'job-1',
+        });
+
+    assert.equal(
+      runCalls,
+      0,
+    );
+
+    assert.equal(
+      resumeCalls.length,
+      1,
+    );
+
+    assert.equal(
+      resumeCalls[0].jobId,
+      'job-1',
+    );
+
+    assert.equal(
+      resumeCalls[0].signal
+        .aborted,
+      false,
+    );
+
+    assert.deepEqual(
+      outcome,
+      {
+        status:
+          'WORKFLOW_COMPLETED',
+
+        executionResult: {
+          status:
+            'FINALIZED',
+
+          outcome:
+            'SUCCESS',
+
+          jobId:
+            'job-1',
+        },
+      },
+    );
+
+    const status =
+      handler.getStatus();
+
+    assert.equal(
+      status.manualResume.total,
+      1,
+    );
+
+    assert.equal(
+      status.manualResume.completed,
+      1,
+    );
+
+    assert.equal(
+      status.manualResume.failed,
+      0,
+    );
+
+    assert.equal(
+      status.manualResume.manualChallenges,
+      0,
+    );
+  },
+);
+
+test(
+  'repeated manual challenge during explicit resume remains manual and is not auto-resumed',
+  async () => {
+    let resumeCalls =
+      0;
+
+    const challengeError =
+      new Error(
+        'challenge remains',
+      );
+
+    challengeError.code =
+      'MANUAL_CHALLENGE_REQUIRED';
+
+    const handler =
+      new IntakeExecutionHandler({
+        executionWorker:
+          createExecutionWorker({
+            resumeManualChallenge:
+              async () => {
+                resumeCalls +=
+                  1;
+
+                throw challengeError;
+              },
+          }),
+      });
+
+    const outcome =
+      await handler
+        .resumeManualChallenge({
+          jobId:
+            'job-1',
+        });
+
+    assert.equal(
+      resumeCalls,
+      1,
+    );
+
+    assert.deepEqual(
+      outcome,
+      {
+        status:
+          'MANUAL_CHALLENGE',
+
+        errorName:
+          'Error',
+
+        errorCode:
+          'MANUAL_CHALLENGE_REQUIRED',
+      },
+    );
+
+    const status =
+      handler.getStatus();
+
+    assert.equal(
+      status.manualResume.total,
+      1,
+    );
+
+    assert.equal(
+      status.manualResume.completed,
+      0,
+    );
+
+    assert.equal(
+      status.manualResume.manualChallenges,
+      1,
+    );
+
+    assert.equal(
+      status.manualResume.failed,
+      0,
+    );
+  },
+);
+
+test(
+  'stopped runtime rejects explicit manual resume before worker invocation',
+  async () => {
+    let resumeCalls =
+      0;
+
+    const handler =
+      new IntakeExecutionHandler({
+        executionWorker:
+          createExecutionWorker({
+            resumeManualChallenge:
+              async () => {
+                resumeCalls +=
+                  1;
+              },
+          }),
+      });
+
+    await handler.stop();
+
+    await assert.rejects(
+      handler.resumeManualChallenge({
+        jobId:
+          'job-1',
+      }),
+      /stopped and cannot resume a manual challenge/,
+    );
+
+    assert.equal(
+      resumeCalls,
+      0,
+    );
+  },
+);
+
+test(
+  'active manual resume blocks another execution for the same job',
+  async () => {
+    let releaseResume;
+
+    const resumeGate =
+      new Promise(
+        (resolve) => {
+          releaseResume =
+            resolve;
+        },
+      );
+
+    let resumeStarted;
+
+    const started =
+      new Promise(
+        (resolve) => {
+          resumeStarted =
+            resolve;
+        },
+      );
+
+    const handler =
+      new IntakeExecutionHandler({
+        executionWorker:
+          createExecutionWorker({
+            resumeManualChallenge:
+              async () => {
+                resumeStarted();
+
+                await resumeGate;
+
+                return {
+                  status:
+                    'FINALIZED',
+
+                  outcome:
+                    'SUCCESS',
+                };
+              },
+          }),
+      });
+
+    const activeResume =
+      handler.resumeManualChallenge({
+        jobId:
+          'job-1',
+      });
+
+    await started;
+
+    await assert.rejects(
+      handler.resumeManualChallenge({
+        jobId:
+          'job-1',
+      }),
+      /already has an active execution/,
+    );
+
+    await assert.rejects(
+      handler.handleCycleResult(
+        createCycleResult([
+          createJob({
+            jobId:
+              'job-1',
+          }),
+        ]),
+      ),
+      /already has an active execution/,
+    );
+
+    releaseResume();
+
+    const outcome =
+      await activeResume;
+
+    assert.equal(
+      outcome.status,
+      'WORKFLOW_COMPLETED',
+    );
+  },
+);
+
+test(
+  'stop aborts active manual resume and waits for it to settle',
+  async () => {
+    let receivedSignal =
+      null;
+
+    let resumeStarted;
+
+    const started =
+      new Promise(
+        (resolve) => {
+          resumeStarted =
+            resolve;
+        },
+      );
+
+    const handler =
+      new IntakeExecutionHandler({
+        executionWorker:
+          createExecutionWorker({
+            resumeManualChallenge:
+              async ({
+                signal,
+              }) => {
+                receivedSignal =
+                  signal;
+
+                resumeStarted();
+
+                await new Promise(
+                  (
+                    resolve,
+                    reject,
+                  ) => {
+                    if (
+                      signal.aborted
+                    ) {
+                      reject(
+                        createAbortError(),
+                      );
+
+                      return;
+                    }
+
+                    signal.addEventListener(
+                      'abort',
+                      () => {
+                        reject(
+                          createAbortError(),
+                        );
+                      },
+                      {
+                        once:
+                          true,
+                      },
+                    );
+                  },
+                );
+
+                return {
+                  status:
+                    'FINALIZED',
+                };
+              },
+          }),
+      });
+
+    const resuming =
+      handler.resumeManualChallenge({
+        jobId:
+          'job-1',
+      });
+
+    await started;
+
+    const stopping =
+      handler.stop();
+
+    const outcome =
+      await resuming;
+
+    const status =
+      await stopping;
+
+    assert.ok(
+      receivedSignal,
+    );
+
+    assert.equal(
+      receivedSignal.aborted,
+      true,
+    );
+
+    assert.equal(
+      outcome.status,
+      'ABORTED',
+    );
+
+    assert.equal(
+      status.stopped,
+      true,
+    );
+
+    assert.equal(
+      status.activeExecutions,
+      0,
+    );
+
+    assert.equal(
+      status.activeJobs,
+      0,
+    );
+
+    assert.equal(
+      status.manualResume.aborted,
+      1,
+    );
+  },
+);
+
+test(
+  'logger receives only bounded intake summary data',
   async () => {
     const logCalls = [];
 
@@ -741,18 +1293,11 @@ test(
       },
     };
 
-    const executionWorker = {
-      async run() {
-        return {
-          status:
-            'WORKFLOW_COMPLETED',
-        };
-      },
-    };
-
     const handler =
       new IntakeExecutionHandler({
-        executionWorker,
+        executionWorker:
+          createExecutionWorker(),
+
         logger,
       });
 
@@ -805,6 +1350,85 @@ test(
 );
 
 test(
+  'manual resume logger contains only bounded operational metadata',
+  async () => {
+    const logCalls = [];
+
+    const logger = {
+      info(
+        fields,
+        message,
+      ) {
+        logCalls.push({
+          fields,
+          message,
+        });
+      },
+    };
+
+    const handler =
+      new IntakeExecutionHandler({
+        executionWorker:
+          createExecutionWorker({
+            resumeManualChallenge:
+              async () => ({
+                status:
+                  'FINALIZED',
+
+                outcome:
+                  'SUCCESS',
+
+                secret:
+                  'must-not-be-logged',
+              }),
+          }),
+
+        logger,
+      });
+
+    await handler
+      .resumeManualChallenge({
+        jobId:
+          'job-1',
+      });
+
+    assert.equal(
+      logCalls.length,
+      1,
+    );
+
+    const serialized =
+      JSON.stringify(
+        logCalls,
+      );
+
+    assert.equal(
+      serialized.includes(
+        'must-not-be-logged',
+      ),
+      false,
+    );
+
+    assert.equal(
+      serialized.includes(
+        'job-1',
+      ),
+      false,
+    );
+
+    assert.match(
+      serialized,
+      /manualChallengeResume/,
+    );
+
+    assert.match(
+      serialized,
+      /"automatic":false/,
+    );
+  },
+);
+
+test(
   'constructor validates execution worker',
   () => {
     assert.throws(
@@ -824,6 +1448,17 @@ test(
         });
       },
       /executionWorker\.run must be a function/,
+    );
+
+    assert.throws(
+      () => {
+        new IntakeExecutionHandler({
+          executionWorker: {
+            run() {},
+          },
+        });
+      },
+      /executionWorker\.resumeManualChallenge must be a function/,
     );
   },
 );

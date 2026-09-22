@@ -123,6 +123,21 @@ function documentIdentity(
     .join('\u0000');
 }
 
+function normalizeStepId(
+  stepId,
+) {
+  if (
+    typeof stepId !== 'string'
+    || stepId.trim() === ''
+  ) {
+    throw new TypeError(
+      'stepId must be a non-empty string.',
+    );
+  }
+
+  return stepId.trim();
+}
+
 export class JobContext {
   constructor({
     job,
@@ -212,8 +227,11 @@ export class JobContext {
       null;
 
     this.retryState = {
-      attempt: 0,
-      lastErrorCode: null,
+      attempt:
+        0,
+
+      lastErrorCode:
+        null,
     };
 
     this.result =
@@ -231,25 +249,43 @@ export class JobContext {
     stepId,
     value,
   ) {
-    if (
-      typeof stepId !== 'string'
-      || stepId.trim() === ''
-    ) {
-      throw new TypeError(
-        'stepId must be a non-empty string.',
+    const normalizedStepId =
+      normalizeStepId(
+        stepId,
       );
-    }
 
     this.responses[
-      stepId.trim()
-    ] = value;
+      normalizedStepId
+    ] =
+      value;
+  }
+
+  hasResponse(
+    stepId,
+  ) {
+    const normalizedStepId =
+      normalizeStepId(
+        stepId,
+      );
+
+    return Object.prototype
+      .hasOwnProperty
+      .call(
+        this.responses,
+        normalizedStepId,
+      );
   }
 
   getResponse(
     stepId,
   ) {
+    const normalizedStepId =
+      normalizeStepId(
+        stepId,
+      );
+
     return this.responses[
-      stepId
+      normalizedStepId
     ];
   }
 

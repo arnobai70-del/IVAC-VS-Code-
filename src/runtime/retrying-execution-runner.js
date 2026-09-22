@@ -171,15 +171,6 @@ function defaultSleep(
   );
 }
 
-/*
- * Safe wrapper used only for errors that the existing retry
- * policy classified as terminal execution failures.
- *
- * Raw error text is deliberately not copied into public fields.
- * A later finalization layer may use failureCode,
- * retryDecision, and retryCount to create a bounded safe
- * FAILURE final result.
- */
 export class ExecutionTerminalFailureError
   extends Error {
   constructor({
@@ -216,32 +207,31 @@ export class ExecutionTerminalFailureError
 }
 
 /*
- * Adds bounded same-process retry around ExecutionWorker only.
+ * Bounded workflow retry wrapper.
  *
- * Important:
+ * Normal intake execution:
  *
- *     ExecutionWorker
- *         -> RetryingExecutionRunner
- *         -> FinalizingExecutionRunner
+ *     run()
+ *       -> ExecutionWorker.run()
  *
- * FinalResultService must remain OUTSIDE this retry boundary.
- * Otherwise a Portal final-result delivery failure could replay
- * the already-completed target workflow.
+ * Explicit manual-challenge continuation:
  *
- * Safety boundaries:
+ *     resumeManualChallenge()
+ *       -> first attempt:
+ *            ExecutionWorker.resumeManualChallenge()
+ *       -> any explicitly retryable later attempt:
+ *            ExecutionWorker.run()
  *
- * - only explicitly retryable errors are retried;
- * - retries preserve the same job and same IP allocation;
- * - this class never calls acquireForJob();
- * - retry allocation becomes RETRY_RESERVED, never released;
- * - retry count is durable in JobStore;
- * - manual challenge is never retried;
- * - shutdown/AbortError never consumes retry budget;
- * - unknown/non-retryable errors fail closed;
- * - exhausted retry becomes an explicit terminal-failure signal;
- * - no raw error message is persisted;
- * - execution input remains the same in-memory object;
- * - no claim is made that input/session survives restart.
+ * This distinction is important:
+ *
+ * - WAITING_FOR_MANUAL_CHALLENGE is never automatically admitted;
+ * - only an explicit resume call can leave that state;
+ * - after explicit resume has transitioned the job back to
+ *   RUNNING, ordinary retry policy may handle a later retryable
+ *   workflow failure;
+ * - completed workflow steps are protected from replay by the
+ *   memory-only JobContext response markers in WorkflowEngine;
+ * - final-result delivery remains outside this retry boundary.
  */
 export class RetryingExecutionRunner {
   constructor({
@@ -261,6 +251,11 @@ export class RetryingExecutionRunner {
     requireFunction(
       executionWorker.run,
       'executionWorker.run',
+    );
+
+    requireFunction(
+      executionWorker.resumeManualChallenge,
+      'executionWorker.resumeManualChallenge',
     );
 
     requireObject(
@@ -337,6 +332,211 @@ export class RetryingExecutionRunner {
     return job;
   }
 
+  async handleFailure({
+    jobId,
+    error,
+    signal,
+  }) {
+    const job =
+      this.getJob(
+        jobId,
+      );
+
+    const classification =
+      classifyRetry({
+        error,
+
+        retryCount:
+          job.retryCount,
+
+        maxRetries:
+          this.maxRetries,
+      });
+
+    if (
+      classification.decision
+      === RETRY_DECISIONS
+        .MANUAL_REQUIRED
+    ) {
+      /*
+       * ExecutionWorker already moved the job to
+       * WAITING_FOR_MANUAL_CHALLENGE.
+       *
+       * Never consume retry budget and never auto-resume it.
+       */
+      throw error;
+    }
+
+    if (
+      classification.decision
+      === RETRY_DECISIONS
+        .SHUTDOWN_INTERRUPTED
+    ) {
+      /*
+       * Shutdown remains non-terminal.
+       *
+       * Do not increment retry count, change allocation
+       * ownership, or release the IP.
+       */
+      throw error;
+    }
+
+    if (
+      classification.decision
+      === RETRY_DECISIONS
+        .NON_RETRYABLE
+      || classification.decision
+        === RETRY_DECISIONS
+          .EXHAUSTED
+    ) {
+      throw new ExecutionTerminalFailureError({
+        retryDecision:
+          classification
+            .decision,
+
+        failureCode:
+          classification
+            .code,
+
+        retryCount:
+          job.retryCount,
+
+        cause:
+          error,
+      });
+    }
+
+    if (
+      classification.decision
+      !== RETRY_DECISIONS
+        .RETRY
+    ) {
+      throw new Error(
+        `Unsupported retry decision: ${classification.decision}`,
+        {
+          cause:
+            error,
+        },
+      );
+    }
+
+    if (
+      job.state
+      !== JOB_STATES.RUNNING
+    ) {
+      throw new Error(
+        `Retryable job ${jobId} is in unexpected state ${job.state}.`,
+        {
+          cause:
+            error,
+        },
+      );
+    }
+
+    /*
+     * Consume retry budget durably before another attempt.
+     *
+     * If shutdown happens after this point, recovery sees the
+     * already-consumed budget and cannot create unlimited retries.
+     */
+    const retryCountedJob =
+      this.jobStore
+        .incrementRetry(
+          jobId,
+          {
+            expectedVersion:
+              job.version,
+          },
+        );
+
+    /*
+     * Keep the exact same allocation reserved for this job.
+     *
+     * No replacement IP is acquired.
+     */
+    this.ipAllocator
+      .markRetryReserved(
+        jobId,
+      );
+
+    const retryPendingJob =
+      this.jobStore
+        .transitionJob(
+          jobId,
+          JOB_STATES.RETRY_PENDING,
+          {
+            expectedVersion:
+              retryCountedJob
+                .version,
+
+            failureCode:
+              classification
+                .code,
+
+            failureMessage:
+              'Retryable workflow execution failure; bounded retry scheduled.',
+          },
+        );
+
+    if (
+      retryPendingJob.retryCount
+      !== classification
+        .retryNumber
+    ) {
+      throw new Error(
+        'Durable retry count does not match retry policy decision.',
+      );
+    }
+
+    await this.sleepFn(
+      classification
+        .delayMs,
+      signal,
+    );
+  }
+
+  async runAttempts({
+    jobId,
+    input,
+    signal,
+    firstAttempt,
+  }) {
+    let attempt =
+      firstAttempt;
+
+    while (true) {
+      try {
+        return await attempt();
+      } catch (error) {
+        await this.handleFailure({
+          jobId,
+          error,
+          signal,
+        });
+
+        /*
+         * After any explicitly retryable failure, the durable job
+         * is RETRY_PENDING.
+         *
+         * All subsequent attempts use normal ExecutionWorker.run().
+         * The worker reuses the existing same-process JobContext
+         * and session, while WorkflowEngine skips its already
+         * completed response prefix.
+         */
+        attempt =
+          () =>
+            this.executionWorker
+              .run({
+                jobId,
+
+                input,
+
+                signal,
+              });
+      }
+    }
+  }
+
   async run({
     jobId,
     input = {},
@@ -348,206 +548,84 @@ export class RetryingExecutionRunner {
         'jobId',
       );
 
-    while (true) {
-      try {
-        return await this.executionWorker
-          .run({
-            jobId:
-              normalizedJobId,
+    requireObject(
+      input,
+      'input',
+    );
 
-            input,
+    return this.runAttempts({
+      jobId:
+        normalizedJobId,
 
-            signal,
-          });
-      } catch (error) {
-        const job =
-          this.getJob(
-            normalizedJobId,
-          );
+      input,
 
-        const classification =
-          classifyRetry({
-            error,
+      signal,
 
-            retryCount:
-              job.retryCount,
+      firstAttempt:
+        () =>
+          this.executionWorker
+            .run({
+              jobId:
+                normalizedJobId,
 
-            maxRetries:
-              this.maxRetries,
-          });
+              input,
 
-        if (
-          classification.decision
-          === RETRY_DECISIONS
-            .MANUAL_REQUIRED
-        ) {
-          /*
-           * ExecutionWorker already moves a detected human
-           * challenge to WAITING_FOR_MANUAL_CHALLENGE.
-           *
-           * Never consume retry budget and never auto-resume it.
-           */
-          throw error;
-        }
+              signal,
+            }),
+    });
+  }
 
-        if (
-          classification.decision
-          === RETRY_DECISIONS
-            .SHUTDOWN_INTERRUPTED
-        ) {
-          /*
-           * Shutdown remains non-terminal.
-           *
-           * Do not increment retry count, change allocation
-           * ownership, or release the IP.
-           */
-          throw error;
-        }
+  /*
+   * Explicit manual-challenge continuation.
+   *
+   * Calling this method is the only path through this class that
+   * invokes ExecutionWorker.resumeManualChallenge().
+   *
+   * The first resumed attempt therefore requires:
+   *
+   * - durable WAITING_FOR_MANUAL_CHALLENGE state;
+   * - original same-process JobContext;
+   * - original session/cookies;
+   * - original live IP allocation.
+   *
+   * If that explicit resumed attempt later fails with an error
+   * declared retryable, the normal bounded retry path takes over.
+   *
+   * A repeated MANUAL_CHALLENGE_REQUIRED is never auto-resumed.
+   */
+  async resumeManualChallenge({
+    jobId,
+    signal = null,
+  }) {
+    const normalizedJobId =
+      requireNonEmptyString(
+        jobId,
+        'jobId',
+      );
 
-        if (
-          classification.decision
-          === RETRY_DECISIONS
-            .NON_RETRYABLE
-          || classification.decision
-            === RETRY_DECISIONS
-              .EXHAUSTED
-        ) {
-          throw new ExecutionTerminalFailureError({
-            retryDecision:
-              classification
-                .decision,
+    return this.runAttempts({
+      jobId:
+        normalizedJobId,
 
-            failureCode:
-              classification
-                .code,
+      /*
+       * No new input is accepted here.
+       *
+       * Manual resume must use the original input already held in
+       * the memory-only JobContext.
+       */
+      input: {},
 
-            retryCount:
-              job.retryCount,
+      signal,
 
-            cause:
-              error,
-          });
-        }
+      firstAttempt:
+        () =>
+          this.executionWorker
+            .resumeManualChallenge({
+              jobId:
+                normalizedJobId,
 
-        if (
-          classification.decision
-          !== RETRY_DECISIONS
-            .RETRY
-        ) {
-          throw new Error(
-            `Unsupported retry decision: ${classification.decision}`,
-            {
-              cause:
-                error,
-            },
-          );
-        }
-
-        /*
-         * A normal retryable workflow failure should still be
-         * RUNNING here.
-         *
-         * Manual challenge and shutdown were handled above.
-         * Anything else fails closed rather than forcing an
-         * invalid lifecycle transition.
-         */
-        if (
-          job.state
-          !== JOB_STATES.RUNNING
-        ) {
-          throw new Error(
-            `Retryable job ${normalizedJobId} is in unexpected state ${job.state}.`,
-            {
-              cause:
-                error,
-            },
-          );
-        }
-
-        /*
-         * Consume retry budget durably before scheduling another
-         * attempt.
-         *
-         * If the process stops after this point, restart recovery
-         * sees the consumed retry budget and cannot accidentally
-         * grant unlimited attempts.
-         */
-        const retryCountedJob =
-          this.jobStore
-            .incrementRetry(
-              normalizedJobId,
-              {
-                expectedVersion:
-                  job.version,
-              },
-            );
-
-        /*
-         * Keep the exact same live allocation tied to the job.
-         *
-         * markRetryReserved() does not acquire another proxy/IP.
-         */
-        this.ipAllocator
-          .markRetryReserved(
-            normalizedJobId,
-          );
-
-        const retryPendingJob =
-          this.jobStore
-            .transitionJob(
-              normalizedJobId,
-              JOB_STATES.RETRY_PENDING,
-              {
-                expectedVersion:
-                  retryCountedJob
-                    .version,
-
-                failureCode:
-                  classification
-                    .code,
-
-                /*
-                 * Fixed bounded text only.
-                 * Never persist the arbitrary upstream error
-                 * message.
-                 */
-                failureMessage:
-                  'Retryable workflow execution failure; bounded retry scheduled.',
-              },
-            );
-
-        if (
-          retryPendingJob.retryCount
-          !== classification
-            .retryNumber
-        ) {
-          throw new Error(
-            'Durable retry count does not match retry policy decision.',
-          );
-        }
-
-        /*
-         * The wait is abort-aware and uses only bounded delay
-         * metadata supplied by retry-policy.js.
-         *
-         * Abort leaves the job RETRY_PENDING with the same IP.
-         * Restart recovery can then reason from durable state.
-         */
-        await this.sleepFn(
-          classification
-            .delayMs,
-          signal,
-        );
-
-        /*
-         * Loop back into ExecutionWorker.
-         *
-         * It explicitly accepts RETRY_PENDING and activates the
-         * same live allocation. Same-process SessionManager and
-         * JobContext reuse preserve the same dispatcher/session
-         * without claiming restart persistence.
-         */
-      }
-    }
+              signal,
+            }),
+    });
   }
 }

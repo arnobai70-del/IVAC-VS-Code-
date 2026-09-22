@@ -150,8 +150,7 @@ function buildSafeFailureData(
 }
 
 /*
- * Decorates the execution runtime with the verified Phase 9
- * final-result lifecycle.
+ * Final-result boundary around the retrying execution runtime.
  *
  * Expected composition:
  *
@@ -159,40 +158,12 @@ function buildSafeFailureData(
  *         -> RetryingExecutionRunner
  *         -> FinalizingExecutionRunner
  *
- * Success:
+ * Both normal execution and explicit manual-challenge resume
+ * terminate through this same final-result lifecycle.
  *
- * - workflow completes;
- * - only whitelisted workflow summary is finalized;
- * - Portal acknowledgement occurs;
- * - job becomes COMPLETED;
- * - terminal IP release occurs.
- *
- * Terminal execution failure:
- *
- * - RetryingExecutionRunner has already classified the error as
- *   NON_RETRYABLE or EXHAUSTED;
- * - no further workflow retry is allowed;
- * - only bounded safe failure metadata is finalized;
- * - Portal acknowledgement occurs;
- * - job becomes FAILED_FINAL;
- * - terminal IP release occurs.
- *
- * Manual challenge and shutdown interruption are NOT terminalized
- * here because RetryingExecutionRunner propagates those original
- * errors rather than wrapping them as ExecutionTerminalFailureError.
- *
- * Safety boundaries:
- *
- * - raw upstream error messages are never copied into final-result
- *   payloads;
- * - JobContext responses, input, password, phone, passport,
- *   cookies, OTP, document URLs, PDF buffers, and target response
- *   payloads are never forwarded into final-result data;
- * - FinalResultService remains responsible for durable capture,
- *   Portal acknowledgement, terminal transition, and terminal-only
- *   IP release;
- * - Portal final-result delivery failures propagate;
- * - final-result delivery is never wrapped in workflow retry.
+ * FinalResultService remains OUTSIDE workflow retry. Therefore
+ * Portal result-delivery failures never replay target workflow
+ * steps.
  */
 export class FinalizingExecutionRunner {
   constructor({
@@ -207,6 +178,11 @@ export class FinalizingExecutionRunner {
     requireFunction(
       executionWorker.run,
       'executionWorker.run',
+    );
+
+    requireFunction(
+      executionWorker.resumeManualChallenge,
+      'executionWorker.resumeManualChallenge',
     );
 
     requireObject(
@@ -226,30 +202,15 @@ export class FinalizingExecutionRunner {
       finalResultService;
   }
 
-  async run({
+  async finalizeExecution({
     jobId,
-    input = {},
-    signal = null,
+    execute,
   }) {
-    const normalizedJobId =
-      requireNonEmptyString(
-        jobId,
-        'jobId',
-      );
-
     let executionResult;
 
     try {
       executionResult =
-        await this.executionWorker
-          .run({
-            jobId:
-              normalizedJobId,
-
-            input,
-
-            signal,
-          });
+        await execute();
     } catch (error) {
       if (
         !(
@@ -263,10 +224,11 @@ export class FinalizingExecutionRunner {
          *
          * - MANUAL_CHALLENGE_REQUIRED
          * - shutdown / AbortError
-         * - integration/programming failures outside the bounded
+         * - missing memory-only manual-resume context
+         * - integration/programming failures outside bounded
          *   terminal execution classification
          *
-         * None are guessed into FAILED_FINAL here.
+         * None are guessed into FAILED_FINAL.
          */
         throw error;
       }
@@ -279,8 +241,7 @@ export class FinalizingExecutionRunner {
       const finalization =
         await this.finalResultService
           .finalize({
-            jobId:
-              normalizedJobId,
+            jobId,
 
             outcome:
               FINAL_RESULT_OUTCOMES
@@ -306,8 +267,7 @@ export class FinalizingExecutionRunner {
           FINAL_RESULT_OUTCOMES
             .FAILURE,
 
-        jobId:
-          normalizedJobId,
+        jobId,
 
         failure: {
           code:
@@ -332,8 +292,7 @@ export class FinalizingExecutionRunner {
     const finalization =
       await this.finalResultService
         .finalize({
-          jobId:
-            normalizedJobId,
+          jobId,
 
           outcome:
             FINAL_RESULT_OUTCOMES
@@ -350,14 +309,88 @@ export class FinalizingExecutionRunner {
         FINAL_RESULT_OUTCOMES
           .SUCCESS,
 
-      jobId:
-        normalizedJobId,
+      jobId,
 
       workflow: {
         ...data,
       },
 
       finalization,
+    });
+  }
+
+  async run({
+    jobId,
+    input = {},
+    signal = null,
+  }) {
+    const normalizedJobId =
+      requireNonEmptyString(
+        jobId,
+        'jobId',
+      );
+
+    requireObject(
+      input,
+      'input',
+    );
+
+    return this.finalizeExecution({
+      jobId:
+        normalizedJobId,
+
+      execute:
+        () =>
+          this.executionWorker
+            .run({
+              jobId:
+                normalizedJobId,
+
+              input,
+
+              signal,
+            }),
+    });
+  }
+
+  /*
+   * Explicit manual-challenge continuation.
+   *
+   * No new input is accepted here. The underlying retry runner
+   * requires the original memory-only JobContext/session.
+   *
+   * A successful resumed workflow goes through the exact same
+   * SUCCESS finalization as normal execution.
+   *
+   * A bounded terminal execution failure goes through the exact
+   * same FAILURE finalization.
+   *
+   * A repeated manual challenge or shutdown remains non-terminal
+   * and propagates without finalization.
+   */
+  async resumeManualChallenge({
+    jobId,
+    signal = null,
+  }) {
+    const normalizedJobId =
+      requireNonEmptyString(
+        jobId,
+        'jobId',
+      );
+
+    return this.finalizeExecution({
+      jobId:
+        normalizedJobId,
+
+      execute:
+        () =>
+          this.executionWorker
+            .resumeManualChallenge({
+              jobId:
+                normalizedJobId,
+
+              signal,
+            }),
     });
   }
 }

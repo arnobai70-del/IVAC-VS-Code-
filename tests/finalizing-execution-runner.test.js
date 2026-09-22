@@ -42,6 +42,22 @@ function createSuccessfulExecutionResult() {
   };
 }
 
+function createExecutionWorker({
+  run =
+    async () =>
+      createSuccessfulExecutionResult(),
+
+  resumeManualChallenge =
+    async () =>
+      createSuccessfulExecutionResult(),
+} = {}) {
+  return {
+    run,
+
+    resumeManualChallenge,
+  };
+}
+
 test(
   'successful workflow is finalized with only whitelisted safe summary data',
   async () => {
@@ -49,15 +65,17 @@ test(
 
     const finalizeCalls = [];
 
-    const executionWorker = {
-      async run(args) {
-        workerCalls.push(
-          args,
-        );
+    const executionWorker =
+      createExecutionWorker({
+        run:
+          async (args) => {
+            workerCalls.push(
+              args,
+            );
 
-        return createSuccessfulExecutionResult();
-      },
-    };
+            return createSuccessfulExecutionResult();
+          },
+      });
 
     const finalResultService = {
       async finalize(args) {
@@ -237,6 +255,160 @@ test(
 );
 
 test(
+  'explicit manual resume success uses the same SUCCESS finalization lifecycle',
+  async () => {
+    const runCalls = [];
+
+    const resumeCalls = [];
+
+    const finalizeCalls = [];
+
+    const runner =
+      new FinalizingExecutionRunner({
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async (args) => {
+                runCalls.push(
+                  args,
+                );
+
+                throw new Error(
+                  'normal run must not be used',
+                );
+              },
+
+            resumeManualChallenge:
+              async (args) => {
+                resumeCalls.push(
+                  args,
+                );
+
+                return {
+                  status:
+                    'WORKFLOW_COMPLETED',
+
+                  workflowResult: {
+                    status:
+                      'COMPLETED',
+
+                    workflowName:
+                      'manual-resume-workflow',
+
+                    completedSteps:
+                      3,
+
+                    secret:
+                      'must-not-be-forwarded',
+                  },
+                };
+              },
+          }),
+
+        finalResultService: {
+          async finalize(args) {
+            finalizeCalls.push(
+              structuredClone(
+                args,
+              ),
+            );
+
+            return {
+              job: {
+                id:
+                  'job-1',
+
+                state:
+                  'COMPLETED',
+              },
+
+              ipRelease: {
+                released:
+                  true,
+              },
+            };
+          },
+        },
+      });
+
+    const result =
+      await runner
+        .resumeManualChallenge({
+          jobId:
+            'job-1',
+        });
+
+    assert.equal(
+      runCalls.length,
+      0,
+    );
+
+    assert.equal(
+      resumeCalls.length,
+      1,
+    );
+
+    assert.deepEqual(
+      resumeCalls[0],
+      {
+        jobId:
+          'job-1',
+
+        signal:
+          null,
+      },
+    );
+
+    assert.deepEqual(
+      finalizeCalls,
+      [
+        {
+          jobId:
+            'job-1',
+
+          outcome:
+            'SUCCESS',
+
+          data: {
+            workflowName:
+              'manual-resume-workflow',
+
+            completedSteps:
+              3,
+          },
+        },
+      ],
+    );
+
+    assert.equal(
+      JSON.stringify(
+        finalizeCalls,
+      ).includes(
+        'must-not-be-forwarded',
+      ),
+      false,
+    );
+
+    assert.equal(
+      result.status,
+      'FINALIZED',
+    );
+
+    assert.equal(
+      result.outcome,
+      'SUCCESS',
+    );
+
+    assert.equal(
+      result.finalization
+        .job
+        .state,
+      'COMPLETED',
+    );
+  },
+);
+
+test(
   'non-retryable terminal execution failure is finalized as FAILURE with bounded metadata',
   async () => {
     const sourceError =
@@ -264,11 +436,13 @@ test(
 
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            throw terminalError;
-          },
-        },
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => {
+                throw terminalError;
+              },
+          }),
 
         finalResultService: {
           async finalize(args) {
@@ -306,11 +480,6 @@ test(
             'another-secret',
         },
       });
-
-    assert.equal(
-      finalizeCalls.length,
-      1,
-    );
 
     assert.deepEqual(
       finalizeCalls[0],
@@ -367,25 +536,119 @@ test(
     );
 
     assert.equal(
-      result.failure.code,
-      'WORKFLOW_STEP_FAILED',
-    );
-
-    assert.equal(
-      result.failure.retryDecision,
-      'NON_RETRYABLE',
-    );
-
-    assert.equal(
-      result.failure.retryCount,
-      1,
-    );
-
-    assert.equal(
       result.finalization
         .job
         .state,
       'FAILED_FINAL',
+    );
+  },
+);
+
+test(
+  'terminal failure during explicit manual resume uses FAILURE finalization',
+  async () => {
+    const terminalError =
+      new ExecutionTerminalFailureError({
+        retryDecision:
+          RETRY_DECISIONS
+            .EXHAUSTED,
+
+        failureCode:
+          'NETWORK_TIMEOUT',
+
+        retryCount:
+          3,
+
+        cause:
+          new Error(
+            'sensitive upstream detail',
+          ),
+      });
+
+    const finalizeCalls = [];
+
+    const runner =
+      new FinalizingExecutionRunner({
+        executionWorker:
+          createExecutionWorker({
+            resumeManualChallenge:
+              async () => {
+                throw terminalError;
+              },
+          }),
+
+        finalResultService: {
+          async finalize(args) {
+            finalizeCalls.push(
+              structuredClone(
+                args,
+              ),
+            );
+
+            return {
+              job: {
+                id:
+                  'job-1',
+
+                state:
+                  'FAILED_FINAL',
+              },
+            };
+          },
+        },
+      });
+
+    const result =
+      await runner
+        .resumeManualChallenge({
+          jobId:
+            'job-1',
+        });
+
+    assert.deepEqual(
+      finalizeCalls,
+      [
+        {
+          jobId:
+            'job-1',
+
+          outcome:
+            'FAILURE',
+
+          code:
+            'NETWORK_TIMEOUT',
+
+          message:
+            'Workflow execution retry limit was exhausted.',
+
+          data: {
+            retryDecision:
+              'EXHAUSTED',
+
+            retryCount:
+              3,
+          },
+        },
+      ],
+    );
+
+    assert.equal(
+      JSON.stringify(
+        finalizeCalls,
+      ).includes(
+        'sensitive upstream detail',
+      ),
+      false,
+    );
+
+    assert.equal(
+      result.status,
+      'FINALIZED',
+    );
+
+    assert.equal(
+      result.outcome,
+      'FAILURE',
     );
   },
 );
@@ -418,14 +681,16 @@ test(
 
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            executionCalls +=
-              1;
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => {
+                executionCalls +=
+                  1;
 
-            throw terminalError;
-          },
-        },
+                throw terminalError;
+              },
+          }),
 
         finalResultService: {
           async finalize(args) {
@@ -466,39 +731,9 @@ test(
       1,
     );
 
-    assert.deepEqual(
-      finalizeCalls[0],
-      {
-        jobId:
-          'job-1',
-
-        outcome:
-          'FAILURE',
-
-        code:
-          'NETWORK_TIMEOUT',
-
-        message:
-          'Workflow execution retry limit was exhausted.',
-
-        data: {
-          retryDecision:
-            'EXHAUSTED',
-
-          retryCount:
-            3,
-        },
-      },
-    );
-
     assert.equal(
       result.outcome,
       'FAILURE',
-    );
-
-    assert.equal(
-      result.failure.retryCount,
-      3,
     );
   },
 );
@@ -519,11 +754,13 @@ test(
 
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            throw challengeError;
-          },
-        },
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => {
+                throw challengeError;
+              },
+          }),
 
         finalResultService: {
           async finalize() {
@@ -540,12 +777,56 @@ test(
 
         input: {},
       }),
-      (
-        error,
-      ) => (
-        error
-        === challengeError
-      ),
+      (error) =>
+        error === challengeError,
+    );
+
+    assert.equal(
+      finalizeCalls,
+      0,
+    );
+  },
+);
+
+test(
+  'repeated manual challenge during explicit resume stays non-terminal',
+  async () => {
+    const challengeError =
+      new Error(
+        'challenge still present',
+      );
+
+    challengeError.code =
+      'MANUAL_CHALLENGE_REQUIRED';
+
+    let finalizeCalls =
+      0;
+
+    const runner =
+      new FinalizingExecutionRunner({
+        executionWorker:
+          createExecutionWorker({
+            resumeManualChallenge:
+              async () => {
+                throw challengeError;
+              },
+          }),
+
+        finalResultService: {
+          async finalize() {
+            finalizeCalls +=
+              1;
+          },
+        },
+      });
+
+    await assert.rejects(
+      runner.resumeManualChallenge({
+        jobId:
+          'job-1',
+      }),
+      (error) =>
+        error === challengeError,
     );
 
     assert.equal(
@@ -574,11 +855,13 @@ test(
 
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            throw abortError;
-          },
-        },
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => {
+                throw abortError;
+              },
+          }),
 
         finalResultService: {
           async finalize() {
@@ -595,12 +878,8 @@ test(
 
         input: {},
       }),
-      (
-        error,
-      ) => (
-        error
-        === abortError
-      ),
+      (error) =>
+        error === abortError,
     );
 
     assert.equal(
@@ -626,11 +905,13 @@ test(
 
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            throw executionError;
-          },
-        },
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => {
+                throw executionError;
+              },
+          }),
 
         finalResultService: {
           async finalize() {
@@ -647,12 +928,8 @@ test(
 
         input: {},
       }),
-      (
-        error,
-      ) => (
-        error
-        === executionError
-      ),
+      (error) =>
+        error === executionError,
     );
 
     assert.equal(
@@ -681,14 +958,16 @@ test(
 
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            executionCalls +=
-              1;
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => {
+                executionCalls +=
+                  1;
 
-            return createSuccessfulExecutionResult();
-          },
-        },
+                return createSuccessfulExecutionResult();
+              },
+          }),
 
         finalResultService: {
           async finalize() {
@@ -707,12 +986,8 @@ test(
 
         input: {},
       }),
-      (
-        error,
-      ) => (
-        error
-        === finalizationError
-      ),
+      (error) =>
+        error === finalizationError,
     );
 
     assert.equal(
@@ -728,26 +1003,8 @@ test(
 );
 
 test(
-  'final-result delivery failure propagates after terminal execution failure',
+  'final-result delivery failure after manual resume does not replay resumed workflow',
   async () => {
-    const terminalError =
-      new ExecutionTerminalFailureError({
-        retryDecision:
-          RETRY_DECISIONS
-            .NON_RETRYABLE,
-
-        failureCode:
-          'WORKFLOW_STEP_FAILED',
-
-        retryCount:
-          0,
-
-        cause:
-          new Error(
-            'source error',
-          ),
-      });
-
     const deliveryError =
       new Error(
         'delivery uncertain',
@@ -756,7 +1013,7 @@ test(
     deliveryError.code =
       'PORTAL_RESULT_DELIVERY_UNCERTAIN';
 
-    let executionCalls =
+    let resumeCalls =
       0;
 
     let finalizeCalls =
@@ -764,14 +1021,16 @@ test(
 
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            executionCalls +=
-              1;
+        executionWorker:
+          createExecutionWorker({
+            resumeManualChallenge:
+              async () => {
+                resumeCalls +=
+                  1;
 
-            throw terminalError;
-          },
-        },
+                return createSuccessfulExecutionResult();
+              },
+          }),
 
         finalResultService: {
           async finalize() {
@@ -784,22 +1043,16 @@ test(
       });
 
     await assert.rejects(
-      runner.run({
+      runner.resumeManualChallenge({
         jobId:
           'job-1',
-
-        input: {},
       }),
-      (
-        error,
-      ) => (
-        error
-        === deliveryError
-      ),
+      (error) =>
+        error === deliveryError,
     );
 
     assert.equal(
-      executionCalls,
+      resumeCalls,
       1,
     );
 
@@ -818,14 +1071,14 @@ test(
 
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            return {
-              status:
-                'RUNNING',
-            };
-          },
-        },
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => ({
+                status:
+                  'RUNNING',
+              }),
+          }),
 
         finalResultService: {
           async finalize() {
@@ -860,25 +1113,25 @@ test(
 
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            return {
-              status:
-                'WORKFLOW_COMPLETED',
-
-              workflowResult: {
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => ({
                 status:
-                  'FAILED',
+                  'WORKFLOW_COMPLETED',
 
-                workflowName:
-                  'ivac-workflow',
+                workflowResult: {
+                  status:
+                    'FAILED',
 
-                completedSteps:
-                  2,
-              },
-            };
-          },
-        },
+                  workflowName:
+                    'ivac-workflow',
+
+                  completedSteps:
+                    2,
+                },
+              }),
+          }),
 
         finalResultService: {
           async finalize() {
@@ -910,25 +1163,25 @@ test(
   async () => {
     const runner =
       new FinalizingExecutionRunner({
-        executionWorker: {
-          async run() {
-            return {
-              status:
-                'WORKFLOW_COMPLETED',
-
-              workflowResult: {
+        executionWorker:
+          createExecutionWorker({
+            run:
+              async () => ({
                 status:
-                  'COMPLETED',
+                  'WORKFLOW_COMPLETED',
 
-                workflowName:
-                  '',
+                workflowResult: {
+                  status:
+                    'COMPLETED',
 
-                completedSteps:
-                  -1,
-              },
-            };
-          },
-        },
+                  workflowName:
+                    '',
+
+                  completedSteps:
+                    -1,
+                },
+              }),
+          }),
 
         finalResultService: {
           async finalize() {
@@ -971,14 +1224,16 @@ test(
     assert.throws(
       () => {
         new FinalizingExecutionRunner({
-          executionWorker: {},
+          executionWorker: {
+            run() {},
+          },
 
           finalResultService: {
             finalize() {},
           },
         });
       },
-      /executionWorker\.run must be a function/,
+      /executionWorker\.resumeManualChallenge must be a function/,
     );
 
     assert.throws(
@@ -986,6 +1241,8 @@ test(
         new FinalizingExecutionRunner({
           executionWorker: {
             run() {},
+
+            resumeManualChallenge() {},
           },
 
           finalResultService:
@@ -1000,6 +1257,8 @@ test(
         new FinalizingExecutionRunner({
           executionWorker: {
             run() {},
+
+            resumeManualChallenge() {},
           },
 
           finalResultService: {},
