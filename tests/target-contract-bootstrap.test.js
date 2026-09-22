@@ -508,7 +508,7 @@ test(
 
 
 test(
-  'application bootstrap uses Phase 29 verified auth contract source',
+  'application bootstrap uses Phase 30 static readiness gate with verified auth contract',
   () => {
     const source =
       readFileSync(
@@ -534,9 +534,42 @@ test(
       false,
     );
 
+    assert.equal(
+      source.includes(
+        "from './runtime/runtime-readiness.js';",
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'assertDestructiveRuntimeReadiness',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'function assertDestructiveRuntimeReady',
+      ),
+      false,
+    );
+
+    assert.equal(
+      source.includes(
+        'runtimeReadiness',
+      ),
+      true,
+    );
+
     assert.match(
       source,
-      /phase:\s*29/,
+      /readiness:\s*runtimeReadiness/,
+    );
+
+    assert.match(
+      source,
+      /phase:\s*30/,
     );
   },
 );

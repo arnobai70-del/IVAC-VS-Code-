@@ -18,7 +18,6 @@ import {
 
 import {
   getIvacTargetContractSummary,
-  validateIvacTargetContract,
 } from './contracts/ivac-target-contract.js';
 
 import {
@@ -143,12 +142,12 @@ import {
 } from './runtime/retrying-execution-runner.js';
 
 import {
-  SessionManager,
-} from './session/session-manager.js';
+  assertDestructiveRuntimeReadiness,
+} from './runtime/runtime-readiness.js';
 
 import {
-  assertIvacWorkflowContractReady,
-} from './workflow/ivac-workflow-contract.js';
+  SessionManager,
+} from './session/session-manager.js';
 
 import {
   loadWorkflowDefinition,
@@ -243,62 +242,6 @@ async function stopDashboardServer(
   }
 
   return false;
-}
-
-function assertDestructiveRuntimeReady({
-  intakeEnabled,
-  workflowRuntimeEnabled,
-  workflow,
-  targetContract,
-  portalResultClient,
-}) {
-  if (!intakeEnabled) {
-    return;
-  }
-
-  if (
-    workflowRuntimeEnabled
-    !== true
-  ) {
-    throw new Error(
-      'Portal intake cannot be enabled while workflow runtime execution is disabled.',
-    );
-  }
-
-  if (
-    workflow.enabled
-    !== true
-  ) {
-    throw new Error(
-      'Portal intake cannot be enabled while the workflow definition is disabled.',
-    );
-  }
-
-  if (
-    validateIvacTargetContract(
-      targetContract,
-    )
-    !== true
-  ) {
-    throw new Error(
-      'Portal intake cannot be enabled until the IVAC target contract is verified.',
-    );
-  }
-
-  assertIvacWorkflowContractReady({
-    workflow,
-    contract:
-      targetContract,
-  });
-
-  if (
-    !portalResultClient
-      .isConfigured()
-  ) {
-    throw new Error(
-      'Portal intake cannot be enabled until the verified Portal final-result contract is configured.',
-    );
-  }
 }
 
 export async function main() {
@@ -543,19 +486,29 @@ export async function main() {
           : {},
       );
 
-    assertDestructiveRuntimeReady({
-      intakeEnabled:
-        config.runtime
-          .intakeEnabled,
+    const runtimeReadiness =
+      assertDestructiveRuntimeReadiness({
+        intakeEnabled:
+          config.runtime
+            .intakeEnabled,
 
-      workflowRuntimeEnabled,
+        workflowRuntimeEnabled,
 
-      workflow,
+        workflow,
 
-      targetContract,
+        targetContract,
 
-      portalResultClient,
-    });
+        portalResultConfigured:
+          portalResultClient
+            .isConfigured(),
+      });
+
+    logger.info(
+      {
+        runtimeReadiness,
+      },
+      'Static destructive runtime readiness evaluated.',
+    );
 
     const proxyConfigPath =
       resolve(
@@ -1577,7 +1530,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          29,
+          30,
 
         environment:
           config.app
@@ -1757,7 +1710,10 @@ export async function main() {
 
     return {
       phase:
-        29,
+        30,
+
+      readiness:
+        runtimeReadiness,
 
       recovery:
         summarizeRecovery(
