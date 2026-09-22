@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  RETRY_DECISIONS,
+} from '../src/recovery/retry-policy.js';
+
+import {
+  ExecutionTerminalFailureError,
+} from '../src/runtime/retrying-execution-runner.js';
+
+import {
   FinalizingExecutionRunner,
 } from '../src/runtime/finalizing-execution-runner.js';
 
@@ -26,11 +34,6 @@ function createSuccessfulExecutionResult() {
       completedSteps:
         4,
 
-      /*
-       * This extra field simulates potentially sensitive or
-       * otherwise non-final-result workflow data. The runner must
-       * not forward it.
-       */
       internalResponse: {
         password:
           'must-not-be-forwarded',
@@ -204,6 +207,11 @@ test(
     );
 
     assert.equal(
+      result.outcome,
+      'SUCCESS',
+    );
+
+    assert.equal(
       result.jobId,
       'job-1',
     );
@@ -229,15 +237,389 @@ test(
 );
 
 test(
-  'execution failure propagates without attempting finalization',
+  'non-retryable terminal execution failure is finalized as FAILURE with bounded metadata',
+  async () => {
+    const sourceError =
+      new Error(
+        'password=must-never-be-forwarded',
+      );
+
+    const terminalError =
+      new ExecutionTerminalFailureError({
+        retryDecision:
+          RETRY_DECISIONS
+            .NON_RETRYABLE,
+
+        failureCode:
+          'WORKFLOW_STEP_FAILED',
+
+        retryCount:
+          1,
+
+        cause:
+          sourceError,
+      });
+
+    const finalizeCalls = [];
+
+    const runner =
+      new FinalizingExecutionRunner({
+        executionWorker: {
+          async run() {
+            throw terminalError;
+          },
+        },
+
+        finalResultService: {
+          async finalize(args) {
+            finalizeCalls.push(
+              structuredClone(
+                args,
+              ),
+            );
+
+            return {
+              job: {
+                id:
+                  'job-1',
+
+                state:
+                  'FAILED_FINAL',
+              },
+
+              ipRelease: {
+                released:
+                  true,
+              },
+            };
+          },
+        },
+      });
+
+    const result =
+      await runner.run({
+        jobId:
+          'job-1',
+
+        input: {
+          password:
+            'another-secret',
+        },
+      });
+
+    assert.equal(
+      finalizeCalls.length,
+      1,
+    );
+
+    assert.deepEqual(
+      finalizeCalls[0],
+      {
+        jobId:
+          'job-1',
+
+        outcome:
+          'FAILURE',
+
+        code:
+          'WORKFLOW_STEP_FAILED',
+
+        message:
+          'Workflow execution failed with a non-retryable error.',
+
+        data: {
+          retryDecision:
+            'NON_RETRYABLE',
+
+          retryCount:
+            1,
+        },
+      },
+    );
+
+    const serialized =
+      JSON.stringify(
+        finalizeCalls[0],
+      );
+
+    assert.equal(
+      serialized.includes(
+        'must-never-be-forwarded',
+      ),
+      false,
+    );
+
+    assert.equal(
+      serialized.includes(
+        'another-secret',
+      ),
+      false,
+    );
+
+    assert.equal(
+      result.status,
+      'FINALIZED',
+    );
+
+    assert.equal(
+      result.outcome,
+      'FAILURE',
+    );
+
+    assert.equal(
+      result.failure.code,
+      'WORKFLOW_STEP_FAILED',
+    );
+
+    assert.equal(
+      result.failure.retryDecision,
+      'NON_RETRYABLE',
+    );
+
+    assert.equal(
+      result.failure.retryCount,
+      1,
+    );
+
+    assert.equal(
+      result.finalization
+        .job
+        .state,
+      'FAILED_FINAL',
+    );
+  },
+);
+
+test(
+  'retry exhaustion is finalized as FAILURE without another workflow attempt',
+  async () => {
+    const terminalError =
+      new ExecutionTerminalFailureError({
+        retryDecision:
+          RETRY_DECISIONS
+            .EXHAUSTED,
+
+        failureCode:
+          'NETWORK_TIMEOUT',
+
+        retryCount:
+          3,
+
+        cause:
+          new Error(
+            'upstream timeout detail',
+          ),
+      });
+
+    let executionCalls =
+      0;
+
+    const finalizeCalls = [];
+
+    const runner =
+      new FinalizingExecutionRunner({
+        executionWorker: {
+          async run() {
+            executionCalls +=
+              1;
+
+            throw terminalError;
+          },
+        },
+
+        finalResultService: {
+          async finalize(args) {
+            finalizeCalls.push(
+              structuredClone(
+                args,
+              ),
+            );
+
+            return {
+              job: {
+                id:
+                  'job-1',
+
+                state:
+                  'FAILED_FINAL',
+              },
+            };
+          },
+        },
+      });
+
+    const result =
+      await runner.run({
+        jobId:
+          'job-1',
+
+        input: {},
+      });
+
+    assert.equal(
+      executionCalls,
+      1,
+    );
+
+    assert.equal(
+      finalizeCalls.length,
+      1,
+    );
+
+    assert.deepEqual(
+      finalizeCalls[0],
+      {
+        jobId:
+          'job-1',
+
+        outcome:
+          'FAILURE',
+
+        code:
+          'NETWORK_TIMEOUT',
+
+        message:
+          'Workflow execution retry limit was exhausted.',
+
+        data: {
+          retryDecision:
+            'EXHAUSTED',
+
+          retryCount:
+            3,
+        },
+      },
+    );
+
+    assert.equal(
+      result.outcome,
+      'FAILURE',
+    );
+
+    assert.equal(
+      result.failure.retryCount,
+      3,
+    );
+  },
+);
+
+test(
+  'manual challenge propagates without failure finalization',
+  async () => {
+    const challengeError =
+      new Error(
+        'manual handling required',
+      );
+
+    challengeError.code =
+      'MANUAL_CHALLENGE_REQUIRED';
+
+    let finalizeCalls =
+      0;
+
+    const runner =
+      new FinalizingExecutionRunner({
+        executionWorker: {
+          async run() {
+            throw challengeError;
+          },
+        },
+
+        finalResultService: {
+          async finalize() {
+            finalizeCalls +=
+              1;
+          },
+        },
+      });
+
+    await assert.rejects(
+      runner.run({
+        jobId:
+          'job-1',
+
+        input: {},
+      }),
+      (
+        error,
+      ) => (
+        error
+        === challengeError
+      ),
+    );
+
+    assert.equal(
+      finalizeCalls,
+      0,
+    );
+  },
+);
+
+test(
+  'shutdown abort propagates without failure finalization',
+  async () => {
+    const abortError =
+      new Error(
+        'shutdown',
+      );
+
+    abortError.name =
+      'AbortError';
+
+    abortError.code =
+      'SHUTDOWN_ABORT';
+
+    let finalizeCalls =
+      0;
+
+    const runner =
+      new FinalizingExecutionRunner({
+        executionWorker: {
+          async run() {
+            throw abortError;
+          },
+        },
+
+        finalResultService: {
+          async finalize() {
+            finalizeCalls +=
+              1;
+          },
+        },
+      });
+
+    await assert.rejects(
+      runner.run({
+        jobId:
+          'job-1',
+
+        input: {},
+      }),
+      (
+        error,
+      ) => (
+        error
+        === abortError
+      ),
+    );
+
+    assert.equal(
+      finalizeCalls,
+      0,
+    );
+  },
+);
+
+test(
+  'generic unclassified execution failure propagates without guessed terminalization',
   async () => {
     const executionError =
       new Error(
-        'temporary workflow failure',
+        'integration failure',
       );
 
     executionError.code =
-      'NETWORK_TIMEOUT';
+      'INTEGRATION_FAILURE';
 
     let finalizeCalls =
       0;
@@ -281,7 +663,7 @@ test(
 );
 
 test(
-  'final-result delivery failure propagates after workflow completion',
+  'final-result delivery failure propagates after successful workflow completion',
   async () => {
     const finalizationError =
       new Error(
@@ -330,6 +712,89 @@ test(
       ) => (
         error
         === finalizationError
+      ),
+    );
+
+    assert.equal(
+      executionCalls,
+      1,
+    );
+
+    assert.equal(
+      finalizeCalls,
+      1,
+    );
+  },
+);
+
+test(
+  'final-result delivery failure propagates after terminal execution failure',
+  async () => {
+    const terminalError =
+      new ExecutionTerminalFailureError({
+        retryDecision:
+          RETRY_DECISIONS
+            .NON_RETRYABLE,
+
+        failureCode:
+          'WORKFLOW_STEP_FAILED',
+
+        retryCount:
+          0,
+
+        cause:
+          new Error(
+            'source error',
+          ),
+      });
+
+    const deliveryError =
+      new Error(
+        'delivery uncertain',
+      );
+
+    deliveryError.code =
+      'PORTAL_RESULT_DELIVERY_UNCERTAIN';
+
+    let executionCalls =
+      0;
+
+    let finalizeCalls =
+      0;
+
+    const runner =
+      new FinalizingExecutionRunner({
+        executionWorker: {
+          async run() {
+            executionCalls +=
+              1;
+
+            throw terminalError;
+          },
+        },
+
+        finalResultService: {
+          async finalize() {
+            finalizeCalls +=
+              1;
+
+            throw deliveryError;
+          },
+        },
+      });
+
+    await assert.rejects(
+      runner.run({
+        jobId:
+          'job-1',
+
+        input: {},
+      }),
+      (
+        error,
+      ) => (
+        error
+        === deliveryError
       ),
     );
 

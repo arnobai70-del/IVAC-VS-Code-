@@ -78,6 +78,10 @@ import {
 } from './portal/portal-result-client.js';
 
 import {
+  DEFAULT_MAX_RETRIES,
+} from './recovery/retry-policy.js';
+
+import {
   RecoveryService,
 } from './recovery/recovery-service.js';
 
@@ -116,6 +120,10 @@ import {
 import {
   createJobWorkflowExecutor,
 } from './runtime/job-workflow-executor.js';
+
+import {
+  RetryingExecutionRunner,
+} from './runtime/retrying-execution-runner.js';
 
 import {
   SessionManager,
@@ -187,14 +195,6 @@ function assertDestructiveRuntimeReady({
     return;
   }
 
-  /*
-   * Destructive Portal intake must never consume a fresh
-   * application when the local workflow is disabled.
-   *
-   * Without this guard, intake could successfully claim a
-   * Portal application and bind an IP only to discover that
-   * execution is intentionally disabled.
-   */
   if (
     workflow.enabled
     !== true
@@ -204,19 +204,6 @@ function assertDestructiveRuntimeReady({
     );
   }
 
-  /*
-   * Workflow success is not terminal by itself.
-   *
-   * Phase 9 requires durable final-result capture, verified
-   * Portal acknowledgement, terminal job transition, and only
-   * then terminal IP release.
-   *
-   * Therefore destructive intake is blocked unless the verified
-   * Portal result-delivery contract is configured.
-   *
-   * No endpoint, payload, or remote idempotency contract is
-   * invented here.
-   */
   if (
     !portalResultClient
       .isConfigured()
@@ -356,12 +343,6 @@ export async function main() {
         database,
       );
 
-    /*
-     * This client intentionally remains whatever the verified
-     * Phase 9 implementation currently supports.
-     *
-     * Do not invent a Portal result endpoint or payload here.
-     */
     const portalResultClient =
       new PortalResultClient();
 
@@ -448,13 +429,6 @@ export async function main() {
         ipAllocator,
       });
 
-    /*
-     * Recovery runs before any destructive Portal intake.
-     *
-     * It operates only on durable local lifecycle state.
-     * No Portal application payload, OTP, cookies, session
-     * state, or PDF binary is reconstructed from SQLite.
-     */
     const recoveryService =
       new RecoveryService({
         jobStore,
@@ -589,14 +563,10 @@ export async function main() {
       });
 
     /*
-     * ExecutionWorker owns the one-job execution boundary.
+     * Lowest execution layer.
      *
-     * It never acquires a replacement IP. Portal intake has
-     * already bound the allocation before the job reaches this
-     * point.
-     *
-     * The workflow executor is built only after SessionManager
-     * has created the allocation-bound in-memory session.
+     * It activates only the intake-bound allocation and creates
+     * the per-job memory-only session/context.
      */
     const executionWorker =
       new ExecutionWorker({
@@ -642,27 +612,49 @@ export async function main() {
       });
 
     /*
-     * Workflow success is not terminal until the existing
-     * FinalResultService has durably captured the result,
-     * delivered it through the verified Portal result contract,
-     * received acknowledgement, transitioned the job terminal,
-     * and released the IP for that terminal lifecycle event.
+     * Retry boundary wraps workflow execution only.
+     *
+     * Explicitly retryable failures:
+     *
+     * - consume durable retry budget;
+     * - keep the same IP;
+     * - move through RETRY_PENDING;
+     * - use bounded retry-policy delay;
+     * - reuse same-process session/context where possible.
+     *
+     * Manual challenge and shutdown are never automatically
+     * retried.
      */
-    const finalizingExecutionRunner =
-      new FinalizingExecutionRunner({
+    const retryingExecutionRunner =
+      new RetryingExecutionRunner({
         executionWorker,
-        finalResultService,
+        jobStore,
+        ipAllocator,
+
+        maxRetries:
+          DEFAULT_MAX_RETRIES,
       });
 
     /*
-     * Only freshly consumed in-memory execution handoffs are
-     * admitted here.
+     * Finalization is OUTSIDE the workflow retry boundary.
      *
-     * The handoff may contain sensitive Portal input, but it is
-     * non-enumerable on the intake descriptor, never persisted,
-     * never logged by IntakeLoop/handler, and intentionally does
-     * not survive restart.
+     * This prevents a Portal final-result delivery error from
+     * replaying the target workflow.
+     *
+     * SUCCESS becomes COMPLETED only after verified Portal
+     * acknowledgement.
+     *
+     * NON_RETRYABLE / EXHAUSTED execution failure becomes
+     * FAILED_FINAL only after verified Portal acknowledgement.
      */
+    const finalizingExecutionRunner =
+      new FinalizingExecutionRunner({
+        executionWorker:
+          retryingExecutionRunner,
+
+        finalResultService,
+      });
+
     intakeExecutionHandler =
       new IntakeExecutionHandler({
         executionWorker:
@@ -759,8 +751,29 @@ export async function main() {
           executionInputPersistence:
             false,
 
-          automaticWorkflowFailureRetry:
+          boundedRetry:
+            true,
+
+          maxRetries:
+            DEFAULT_MAX_RETRIES,
+
+          retryDelaysMs: [
+            1000,
+            5000,
+            15000,
+          ],
+
+          manualChallengeRetry:
             false,
+
+          shutdownRetry:
+            false,
+
+          unknownErrorRetry:
+            false,
+
+          finalResultOutsideRetryBoundary:
+            true,
 
           finalizationRequired:
             true,
@@ -850,6 +863,9 @@ export async function main() {
           remoteIdempotentReplay:
             portalResultClient
               .supportsIdempotentReplay(),
+
+          workflowReplayOnDeliveryFailure:
+            false,
 
           staleInFlightOnRestart:
             'UNCERTAIN',
@@ -1012,14 +1028,11 @@ export async function main() {
         stopIntake:
           async () => {
             /*
-             * First prevent/admit no further workflow execution
-             * and abort currently active workflow waits/requests.
+             * Stop workflow admission first.
              *
-             * Then stop IntakeLoop. If a destructive runCycle()
-             * is already in flight, IntakeLoop deliberately waits
-             * for it instead of aborting the uncertain Portal
-             * operation. Its downstream callback sees the stopped
-             * handler and does not start a new workflow.
+             * Active workflow execution or retry wait receives an
+             * abort signal. Neither path releases a non-terminal
+             * IP or consumes an additional retry after shutdown.
              */
             if (
               intakeExecutionHandler
@@ -1028,6 +1041,13 @@ export async function main() {
                 .stop();
             }
 
+            /*
+             * Destructive Portal runCycle() is never aborted.
+             *
+             * If already active, IntakeLoop waits for it. Its
+             * callback sees the stopped execution handler and
+             * therefore does not admit fresh workflow execution.
+             */
             if (
               intakeLoop
             ) {
@@ -1060,11 +1080,6 @@ export async function main() {
       || config.runtime
         .intakeEnabled;
 
-    /*
-     * Install shutdown handling before destructive intake is
-     * admitted. This closes the race where a signal could arrive
-     * after intake starts but before the stop hook exists.
-     */
     if (
       hasLongLivedRuntime
     ) {
@@ -1096,10 +1111,16 @@ export async function main() {
             workflowExecution:
               true,
 
+            boundedWorkflowRetry:
+              true,
+
+            maxWorkflowRetries:
+              DEFAULT_MAX_RETRIES,
+
             finalResultRequired:
               true,
 
-            automaticFailureRetry:
+            automaticDestructiveIntakeRetry:
               false,
           },
         },
@@ -1129,14 +1150,6 @@ export async function main() {
       );
     }
 
-    /*
-     * Keep SQLite open only while a deliberate long-lived
-     * runtime component exists.
-     *
-     * With both dashboard and intake disabled, startup remains
-     * a non-destructive verification/recovery pass and the
-     * database is closed normally in finally.
-     */
     if (
       hasLongLivedRuntime
     ) {
@@ -1147,7 +1160,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          13,
+          14,
 
         environment:
           config.app
@@ -1198,8 +1211,26 @@ export async function main() {
           challengeBypass:
             false,
 
+          boundedRetry:
+            true,
+
+          maxRetries:
+            DEFAULT_MAX_RETRIES,
+
+          manualChallengeRetry:
+            false,
+
+          shutdownRetry:
+            false,
+
           successRequiresFinalResult:
             true,
+
+          terminalFailureRequiresFinalResult:
+            true,
+
+          finalResultDeliveryInsideRetryBoundary:
+            false,
         },
 
         recovery: {
@@ -1240,6 +1271,9 @@ export async function main() {
           abortsActiveWorkflow:
             true,
 
+          abortsRetryWait:
+            true,
+
           releasesNonTerminalIp:
             false,
         },
@@ -1249,7 +1283,7 @@ export async function main() {
 
     return {
       phase:
-        13,
+        14,
 
       recovery:
         summarizeRecovery(

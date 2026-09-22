@@ -2,6 +2,10 @@ import {
   FINAL_RESULT_OUTCOMES,
 } from '../results/final-result.js';
 
+import {
+  ExecutionTerminalFailureError,
+} from './retrying-execution-runner.js';
+
 function requireObject(
   value,
   name,
@@ -115,31 +119,80 @@ function buildSafeSuccessData(
   });
 }
 
+function buildSafeFailureData(
+  error,
+) {
+  if (
+    !(
+      error
+      instanceof
+        ExecutionTerminalFailureError
+    )
+  ) {
+    throw new TypeError(
+      'A terminal execution failure is required.',
+    );
+  }
+
+  return Object.freeze({
+    retryDecision:
+      requireNonEmptyString(
+        error.retryDecision,
+        'error.retryDecision',
+      ),
+
+    retryCount:
+      requireNonNegativeInteger(
+        error.retryCount,
+        'error.retryCount',
+      ),
+  });
+}
+
 /*
- * Decorates ExecutionWorker with the verified Phase 9
+ * Decorates the execution runtime with the verified Phase 9
  * final-result lifecycle.
  *
- * Only successful workflow execution is finalized here.
+ * Expected composition:
  *
- * Failure finalization is intentionally NOT guessed:
- * retryable vs final failure remains the bounded retry-policy
- * concern.
+ *     ExecutionWorker
+ *         -> RetryingExecutionRunner
+ *         -> FinalizingExecutionRunner
+ *
+ * Success:
+ *
+ * - workflow completes;
+ * - only whitelisted workflow summary is finalized;
+ * - Portal acknowledgement occurs;
+ * - job becomes COMPLETED;
+ * - terminal IP release occurs.
+ *
+ * Terminal execution failure:
+ *
+ * - RetryingExecutionRunner has already classified the error as
+ *   NON_RETRYABLE or EXHAUSTED;
+ * - no further workflow retry is allowed;
+ * - only bounded safe failure metadata is finalized;
+ * - Portal acknowledgement occurs;
+ * - job becomes FAILED_FINAL;
+ * - terminal IP release occurs.
+ *
+ * Manual challenge and shutdown interruption are NOT terminalized
+ * here because RetryingExecutionRunner propagates those original
+ * errors rather than wrapping them as ExecutionTerminalFailureError.
  *
  * Safety boundaries:
  *
- * - workflow execution must complete first;
- * - only a tiny whitelisted success summary reaches the durable
- *   final-result ledger;
+ * - raw upstream error messages are never copied into final-result
+ *   payloads;
  * - JobContext responses, input, password, phone, passport,
- *   cookies, OTP, document URLs, PDF buffers, and raw target
+ *   cookies, OTP, document URLs, PDF buffers, and target response
  *   payloads are never forwarded into final-result data;
  * - FinalResultService remains responsible for durable capture,
- *   Portal acknowledgement, terminal job transition, and
- *   terminal-only IP release;
- * - if Portal delivery is unavailable or uncertain, the error
- *   propagates and the job/IP are not falsely treated as
- *   completed here;
- * - no automatic replay is performed here.
+ *   Portal acknowledgement, terminal transition, and terminal-only
+ *   IP release;
+ * - Portal final-result delivery failures propagate;
+ * - final-result delivery is never wrapped in workflow retry.
  */
 export class FinalizingExecutionRunner {
   constructor({
@@ -184,16 +237,92 @@ export class FinalizingExecutionRunner {
         'jobId',
       );
 
-    const executionResult =
-      await this.executionWorker
-        .run({
-          jobId:
-            normalizedJobId,
+    let executionResult;
 
-          input,
+    try {
+      executionResult =
+        await this.executionWorker
+          .run({
+            jobId:
+              normalizedJobId,
 
-          signal,
-        });
+            input,
+
+            signal,
+          });
+    } catch (error) {
+      if (
+        !(
+          error
+          instanceof
+            ExecutionTerminalFailureError
+        )
+      ) {
+        /*
+         * Includes:
+         *
+         * - MANUAL_CHALLENGE_REQUIRED
+         * - shutdown / AbortError
+         * - integration/programming failures outside the bounded
+         *   terminal execution classification
+         *
+         * None are guessed into FAILED_FINAL here.
+         */
+        throw error;
+      }
+
+      const data =
+        buildSafeFailureData(
+          error,
+        );
+
+      const finalization =
+        await this.finalResultService
+          .finalize({
+            jobId:
+              normalizedJobId,
+
+            outcome:
+              FINAL_RESULT_OUTCOMES
+                .FAILURE,
+
+            code:
+              error.failureCode,
+
+            message:
+              error.retryDecision
+              === 'EXHAUSTED'
+                ? 'Workflow execution retry limit was exhausted.'
+                : 'Workflow execution failed with a non-retryable error.',
+
+            data,
+          });
+
+      return Object.freeze({
+        status:
+          'FINALIZED',
+
+        outcome:
+          FINAL_RESULT_OUTCOMES
+            .FAILURE,
+
+        jobId:
+          normalizedJobId,
+
+        failure: {
+          code:
+            error.failureCode,
+
+          retryDecision:
+            data.retryDecision,
+
+          retryCount:
+            data.retryCount,
+        },
+
+        finalization,
+      });
+    }
 
     const data =
       buildSafeSuccessData(
@@ -216,6 +345,10 @@ export class FinalizingExecutionRunner {
     return Object.freeze({
       status:
         'FINALIZED',
+
+      outcome:
+        FINAL_RESULT_OUTCOMES
+          .SUCCESS,
 
       jobId:
         normalizedJobId,
