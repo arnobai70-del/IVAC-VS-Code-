@@ -89,6 +89,19 @@ function createOperationalService() {
       };
     },
 
+    async getRuntimeStatus() {
+      return {
+        configured: true,
+        status: {
+          inFlight: 1,
+          memoryContexts: 2,
+          token: "must-not-leak",
+          cookie: "session-secret",
+          password: "password-secret",
+        },
+      };
+    },
+
     async getReadiness() {
       return {
         configured: false,
@@ -385,6 +398,98 @@ test("capacity endpoint returns safe capacity state", async () => {
       healthyAvailable: 1,
       hasCapacity: true,
     });
+  });
+});
+
+test("runtime endpoint returns bounded runtime counters", async () => {
+  await withServer(async (port) => {
+    const response = await httpJson({
+      port,
+      path: "/api/dashboard/runtime",
+    });
+
+    assert.equal(response.statusCode, 200);
+
+    assert.equal(
+      response.body.configured,
+      true,
+    );
+
+    assert.equal(
+      response.body.status.inFlight,
+      1,
+    );
+
+    assert.equal(
+      response.body.status.memoryContexts,
+      2,
+    );
+  });
+});
+
+test("runtime endpoint applies final response redaction", async () => {
+  await withServer(async (port) => {
+    const response = await httpJson({
+      port,
+      path: "/api/dashboard/runtime",
+    });
+
+    assert.equal(response.statusCode, 200);
+
+    assert.equal(
+      response.body.status.token,
+      "[REDACTED]",
+    );
+
+    assert.equal(
+      response.body.status.cookie,
+      "[REDACTED]",
+    );
+
+    assert.equal(
+      response.body.status.password,
+      "[REDACTED]",
+    );
+
+    const serialized =
+      JSON.stringify(response.body);
+
+    assert.doesNotMatch(
+      serialized,
+      /must-not-leak/i,
+    );
+
+    assert.doesNotMatch(
+      serialized,
+      /session-secret/i,
+    );
+
+    assert.doesNotMatch(
+      serialized,
+      /password-secret/i,
+    );
+  });
+});
+
+test("runtime endpoint rejects non-GET methods", async () => {
+  await withServer(async (port) => {
+    const response = await httpJson({
+      port,
+      path: "/api/dashboard/runtime",
+      method: "POST",
+    });
+
+    assert.equal(response.statusCode, 405);
+
+    assert.equal(
+      response.body.error.code,
+      "METHOD_NOT_ALLOWED",
+    );
+
+    assert.equal(
+      response.headers.allow,
+      "GET",
+    );
   });
 });
 

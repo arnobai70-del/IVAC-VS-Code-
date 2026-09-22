@@ -113,6 +113,7 @@ function assertOperationalService(service) {
     "listProxies",
     "listLiveAllocations",
     "getCapacity",
+    "getRuntimeStatus",
     "getReadiness",
   ];
 
@@ -269,6 +270,20 @@ async function routeRequest({
       200,
       operationalService.getCapacity(),
     );
+
+    return;
+  }
+
+  if (pathname === "/api/dashboard/runtime") {
+    if (request.method !== "GET") {
+      writeMethodNotAllowed(response, ["GET"]);
+      return;
+    }
+
+    const runtimeStatus =
+      await operationalService.getRuntimeStatus();
+
+    writeJson(response, 200, runtimeStatus);
 
     return;
   }

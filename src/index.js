@@ -1223,6 +1223,11 @@ export async function main() {
           proxyPool,
           finalResultStore,
 
+          runtimeStatusProvider:
+            () =>
+              executionWorker
+                .getStatus(),
+
           readinessProvider:
             async () => {
               const health =

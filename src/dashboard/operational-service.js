@@ -419,6 +419,7 @@ export class OperationalService {
     proxyPool,
     finalResultStore,
     readinessProvider = null,
+    runtimeStatusProvider = null,
   }) {
     assertStoreMethod(jobStore, "listIncompleteJobs");
     assertStoreMethod(jobStore, "getJobById");
@@ -452,11 +453,21 @@ export class OperationalService {
       );
     }
 
+    if (
+      runtimeStatusProvider !== null &&
+      typeof runtimeStatusProvider !== "function"
+    ) {
+      throw new TypeError(
+        "runtimeStatusProvider must be a function or null",
+      );
+    }
+
     this.jobStore = jobStore;
     this.ipAllocator = ipAllocator;
     this.proxyPool = proxyPool;
     this.finalResultStore = finalResultStore;
     this.readinessProvider = readinessProvider;
+    this.runtimeStatusProvider = runtimeStatusProvider;
   }
 
   getOverview() {
@@ -586,6 +597,33 @@ export class OperationalService {
           ? healthyAvailable > 0
           : null,
     };
+  }
+
+  async getRuntimeStatus() {
+    if (!this.runtimeStatusProvider) {
+      return {
+        configured: false,
+        status: null,
+      };
+    }
+
+    try {
+      const status =
+        await this.runtimeStatusProvider();
+
+      return {
+        configured: true,
+        status:
+          sanitizeOperationalValue(status),
+      };
+    } catch (error) {
+      return {
+        configured: true,
+        status: null,
+        error:
+          sanitizeOperationalError(error),
+      };
+    }
   }
 
   async getReadiness() {

@@ -323,6 +323,170 @@ test("capacity reports healthy available count", () => {
   );
 });
 
+test("runtime status is fail-closed when provider is not configured", async () => {
+  const { service } = createFixture();
+
+  assert.deepEqual(
+    await service.getRuntimeStatus(),
+    {
+      configured: false,
+      status: null,
+    },
+  );
+});
+
+test("configured runtime status provider exposes bounded counters", async () => {
+  const fixture = createFixture();
+
+  const service = new OperationalService({
+    jobStore: fixture.service.jobStore,
+    ipAllocator: fixture.service.ipAllocator,
+    proxyPool: fixture.service.proxyPool,
+    finalResultStore:
+      fixture.service.finalResultStore,
+    runtimeStatusProvider: async () => ({
+      inFlight: 2,
+      memoryContexts: 3,
+    }),
+  });
+
+  const runtimeStatus =
+    await service.getRuntimeStatus();
+
+  assert.equal(
+    runtimeStatus.configured,
+    true,
+  );
+
+  assert.deepEqual(
+    { ...runtimeStatus.status },
+    {
+      inFlight: 2,
+      memoryContexts: 3,
+    },
+  );
+});
+
+test("runtime status provider output is sanitized", async () => {
+  const fixture = createFixture();
+
+  const service = new OperationalService({
+    jobStore: fixture.service.jobStore,
+    ipAllocator: fixture.service.ipAllocator,
+    proxyPool: fixture.service.proxyPool,
+    finalResultStore:
+      fixture.service.finalResultStore,
+    runtimeStatusProvider: async () => ({
+      inFlight: 1,
+      memoryContexts: 2,
+      token: "must-not-leak",
+      cookie: "session-secret",
+      otp: "123456",
+      password: "password-secret",
+    }),
+  });
+
+  const runtimeStatus =
+    await service.getRuntimeStatus();
+
+  assert.equal(
+    runtimeStatus.configured,
+    true,
+  );
+
+  assert.equal(
+    runtimeStatus.status.inFlight,
+    1,
+  );
+
+  assert.equal(
+    runtimeStatus.status.memoryContexts,
+    2,
+  );
+
+  const serialized =
+    JSON.stringify(runtimeStatus);
+
+  assert.doesNotMatch(serialized, /must-not-leak/i);
+  assert.doesNotMatch(serialized, /session-secret/i);
+  assert.doesNotMatch(serialized, /123456/);
+  assert.doesNotMatch(serialized, /password-secret/i);
+});
+
+test("runtime status provider errors are safely projected", async () => {
+  const fixture = createFixture();
+
+  const service = new OperationalService({
+    jobStore: fixture.service.jobStore,
+    ipAllocator: fixture.service.ipAllocator,
+    proxyPool: fixture.service.proxyPool,
+    finalResultStore:
+      fixture.service.finalResultStore,
+    runtimeStatusProvider: async () => {
+      const error = new Error(
+        "runtime failed using Bearer secret-token",
+      );
+
+      error.code = "RUNTIME_STATUS_FAILED";
+      error.password = "must-not-leak";
+
+      throw error;
+    },
+  });
+
+  const runtimeStatus =
+    await service.getRuntimeStatus();
+
+  assert.equal(
+    runtimeStatus.configured,
+    true,
+  );
+
+  assert.equal(
+    runtimeStatus.status,
+    null,
+  );
+
+  assert.equal(
+    runtimeStatus.error.code,
+    "RUNTIME_STATUS_FAILED",
+  );
+
+  assert.equal(
+    runtimeStatus.error.message,
+    "runtime failed using [REDACTED]",
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      runtimeStatus.error,
+      "password",
+    ),
+    false,
+  );
+});
+
+test("runtimeStatusProvider constructor option is validated", () => {
+  const fixture = createFixture();
+
+  assert.throws(
+    () =>
+      new OperationalService({
+        jobStore:
+          fixture.service.jobStore,
+        ipAllocator:
+          fixture.service.ipAllocator,
+        proxyPool:
+          fixture.service.proxyPool,
+        finalResultStore:
+          fixture.service.finalResultStore,
+        runtimeStatusProvider:
+          "invalid",
+      }),
+    /runtimeStatusProvider must be a function or null/,
+  );
+});
+
 test("readiness is fail-closed when provider is not configured", async () => {
   const { service } = createFixture();
 
