@@ -4,6 +4,18 @@ const DEFAULT_CONTRACT_STATUS =
 const CONTRACT_VERSION =
   1;
 
+function freezeContract(
+  contract,
+) {
+  Object.freeze(
+    contract.endpoints,
+  );
+
+  return Object.freeze(
+    contract,
+  );
+}
+
 function cloneEndpoints(
   endpoints,
 ) {
@@ -103,7 +115,7 @@ function validateEndpoint(
 }
 
 export function createUnverifiedIvacTargetContract() {
-  return {
+  return freezeContract({
     version:
       CONTRACT_VERSION,
 
@@ -115,7 +127,7 @@ export function createUnverifiedIvacTargetContract() {
 
     endpoints:
       [],
-  };
+  });
 }
 
 export function createIvacTargetContract({
@@ -127,7 +139,7 @@ export function createIvacTargetContract({
       validateEndpoint,
     );
 
-  return {
+  return freezeContract({
     version:
       CONTRACT_VERSION,
 
@@ -140,8 +152,10 @@ export function createIvacTargetContract({
       verified === true,
 
     endpoints:
-      normalizedEndpoints,
-  };
+      Object.freeze(
+        normalizedEndpoints,
+      ),
+  });
 }
 
 export function validateIvacTargetContract(
