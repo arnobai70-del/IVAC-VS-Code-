@@ -188,6 +188,7 @@ async function stopDashboardServer(
 
 function assertDestructiveRuntimeReady({
   intakeEnabled,
+  workflowRuntimeEnabled,
   workflow,
   portalResultClient,
 }) {
@@ -196,11 +197,20 @@ function assertDestructiveRuntimeReady({
   }
 
   if (
+    workflowRuntimeEnabled
+    !== true
+  ) {
+    throw new Error(
+      'Portal intake cannot be enabled while workflow runtime execution is disabled.',
+    );
+  }
+
+  if (
     workflow.enabled
     !== true
   ) {
     throw new Error(
-      'Portal intake cannot be enabled while workflow execution is disabled.',
+      'Portal intake cannot be enabled while the workflow definition is disabled.',
     );
   }
 
@@ -253,6 +263,18 @@ export async function main() {
           .maxSteps,
     });
 
+  const workflowRuntimeEnabled =
+    config.workflow.enabled
+    === true;
+
+  const workflowDefinitionEnabled =
+    workflow.enabled
+    === true;
+
+  const workflowExecutionEnabled =
+    workflowRuntimeEnabled
+    && workflowDefinitionEnabled;
+
   logger.info(
     {
       workflow: {
@@ -262,8 +284,14 @@ export async function main() {
         version:
           workflow.version,
 
-        enabled:
-          workflow.enabled,
+        runtimeEnabled:
+          workflowRuntimeEnabled,
+
+        definitionEnabled:
+          workflowDefinitionEnabled,
+
+        executionEnabled:
+          workflowExecutionEnabled,
 
         stepCount:
           workflow.steps
@@ -350,6 +378,8 @@ export async function main() {
       intakeEnabled:
         config.runtime
           .intakeEnabled,
+
+      workflowRuntimeEnabled,
 
       workflow,
 
@@ -770,8 +800,14 @@ export async function main() {
           configured:
             true,
 
+          workflowRuntimeEnabled:
+            workflowRuntimeEnabled,
+
+          workflowDefinitionEnabled:
+            workflowDefinitionEnabled,
+
           workflowEnabled:
-            workflow.enabled,
+            workflowExecutionEnabled,
 
           intakeExecutionConnected:
             true,
@@ -955,6 +991,15 @@ export async function main() {
     logger.info(
       {
         workflowEngine: {
+          runtimeEnabled:
+            workflowRuntimeEnabled,
+
+          definitionEnabled:
+            workflowDefinitionEnabled,
+
+          executionEnabled:
+            workflowExecutionEnabled,
+
           safeTemplates:
             true,
 
@@ -1199,8 +1244,14 @@ export async function main() {
             explicitOptIn:
               true,
 
+            workflowRuntimeEnabled:
+              workflowRuntimeEnabled,
+
+            workflowDefinitionEnabled:
+              workflowDefinitionEnabled,
+
             workflowExecution:
-              true,
+              workflowExecutionEnabled,
 
             boundedWorkflowRetry:
               true,
@@ -1233,6 +1284,12 @@ export async function main() {
             destructivePortalIntake:
               false,
 
+            workflowRuntimeEnabled:
+              workflowRuntimeEnabled,
+
+            workflowDefinitionEnabled:
+              workflowDefinitionEnabled,
+
             workflowExecution:
               false,
 
@@ -1257,7 +1314,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          15,
+          16,
 
         environment:
           config.app
@@ -1293,8 +1350,14 @@ export async function main() {
           connected:
             true,
 
+          workflowRuntimeEnabled:
+            workflowRuntimeEnabled,
+
+          workflowDefinitionEnabled:
+            workflowDefinitionEnabled,
+
           workflowEnabled:
-            workflow.enabled,
+            workflowExecutionEnabled,
 
           sameIpPerJob:
             true,
@@ -1413,7 +1476,7 @@ export async function main() {
 
     return {
       phase:
-        15,
+        16,
 
       recovery:
         summarizeRecovery(

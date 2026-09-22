@@ -76,6 +76,11 @@ test('project app.json passes configuration validation', () => {
   );
 
   assert.equal(
+    config.workflow.enabled,
+    false,
+  );
+
+  assert.equal(
     config.workflow.file,
     'config/workflow.json',
   );
@@ -84,6 +89,118 @@ test('project app.json passes configuration validation', () => {
     config.workflow.maxSteps,
     100,
   );
+});
+
+test('workflow execution defaults to disabled fail-closed operation', () => {
+  const config =
+    loadConfig({
+      configPath:
+        DEFAULT_CONFIG_PATH,
+
+      env: {},
+
+      loadEnvFile:
+        false,
+    });
+
+  assert.equal(
+    config.workflow.enabled,
+    false,
+  );
+
+  assert.equal(
+    config.runtime.intakeEnabled,
+    false,
+  );
+});
+
+test('portal intake cannot be enabled while workflow execution is disabled', () => {
+  const temporaryDirectory =
+    mkdtempSync(
+      join(
+        tmpdir(),
+        'ivac-config-test-',
+      ),
+    );
+
+  const configFile =
+    join(
+      temporaryDirectory,
+      'app.json',
+    );
+
+  const sourceConfig =
+    JSON.parse(
+      readFileSync(
+        DEFAULT_CONFIG_PATH,
+        'utf8',
+      ),
+    );
+
+  const invalidConfig = {
+    ...sourceConfig,
+
+    runtime: {
+      ...sourceConfig.runtime,
+      intakeEnabled: true,
+    },
+
+    workflow: {
+      ...sourceConfig.workflow,
+      enabled: false,
+    },
+  };
+
+  writeFileSync(
+    configFile,
+    JSON.stringify(
+      invalidConfig,
+      null,
+      2,
+    ),
+    'utf8',
+  );
+
+  try {
+    assert.throws(
+      () => {
+        loadConfig({
+          configPath:
+            configFile,
+
+          env: {},
+
+          loadEnvFile:
+            false,
+        });
+      },
+
+      (error) => {
+        assert.ok(
+          error instanceof ConfigError,
+        );
+
+        assert.equal(
+          JSON.stringify(
+            error.details,
+          ).includes(
+            'runtime.intakeEnabled',
+          ),
+          true,
+        );
+
+        return true;
+      },
+    );
+  } finally {
+    rmSync(
+      temporaryDirectory,
+      {
+        recursive: true,
+        force: true,
+      },
+    );
+  }
 });
 
 test('dashboard configuration defaults to disabled loopback-only operation', () => {

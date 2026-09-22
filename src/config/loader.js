@@ -388,6 +388,10 @@ export function getSafeConfigSummary(
     },
 
     workflow: {
+      enabled:
+        config.workflow
+          .enabled,
+
       file:
         config.workflow.file,
 

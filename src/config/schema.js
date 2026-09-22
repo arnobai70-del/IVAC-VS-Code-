@@ -370,6 +370,15 @@ const documentsSchema =
 
 const workflowRuntimeSchema =
   z.object({
+    /*
+     * Workflow execution is destructive-capable runtime
+     * behavior and therefore remains disabled unless an
+     * operator explicitly enables it.
+     */
+    enabled:
+      z.boolean()
+        .default(false),
+
     file:
       z.string()
         .trim()
@@ -541,7 +550,41 @@ export const appConfigSchema =
         level:
           logLevelSchema,
       }),
-  });
+  })
+    .superRefine(
+      (
+        value,
+        context,
+      ) => {
+        /*
+         * Portal intake consumes pending remote work.
+         * It must never be enabled while workflow execution
+         * itself remains disabled.
+         *
+         * Additional external-contract gates belong beside
+         * their verified configuration once those contracts
+         * are known; this schema deliberately does not invent
+         * them.
+         */
+        if (
+          value.runtime.intakeEnabled
+          && !value.workflow.enabled
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            path: [
+              'runtime',
+              'intakeEnabled',
+            ],
+
+            message:
+              'Portal intake cannot be enabled while workflow execution is disabled.',
+          });
+        }
+      },
+    );
 
 export const environmentConfigSchema =
   z.object({
