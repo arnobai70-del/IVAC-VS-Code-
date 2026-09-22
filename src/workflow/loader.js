@@ -11,6 +11,10 @@ import {
   validateWorkflowDefinition,
 } from './schema.js';
 
+import {
+  validateIvacWorkflowPolicy,
+} from './ivac-workflow-policy.js';
+
 function deepFreeze(
   value,
 ) {
@@ -29,7 +33,9 @@ function deepFreeze(
     deepFreeze(child);
   }
 
-  return Object.freeze(value);
+  return Object.freeze(
+    value,
+  );
 }
 
 export function loadWorkflowDefinition({
@@ -48,7 +54,8 @@ export function loadWorkflowDefinition({
     throw new WorkflowConfigError(
       `Unable to read workflow file: ${filePath}`,
       {
-        cause: error,
+        cause:
+          error,
       },
     );
   }
@@ -64,7 +71,8 @@ export function loadWorkflowDefinition({
     throw new WorkflowConfigError(
       `Workflow file contains invalid JSON: ${filePath}`,
       {
-        cause: error,
+        cause:
+          error,
       },
     );
   }
@@ -80,12 +88,27 @@ export function loadWorkflowDefinition({
     throw new WorkflowConfigError(
       'Workflow definition failed validation.',
       {
-        cause: error,
+        cause:
+          error,
 
         details:
           formatWorkflowIssues(
             error,
           ),
+      },
+    );
+  }
+
+  try {
+    validateIvacWorkflowPolicy(
+      workflow,
+    );
+  } catch (error) {
+    throw new WorkflowConfigError(
+      'IVAC workflow policy validation failed.',
+      {
+        cause:
+          error,
       },
     );
   }
