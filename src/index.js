@@ -13,6 +13,12 @@ import {
 } from './config/loader.js';
 
 import {
+  createUnverifiedIvacTargetContract,
+  getIvacTargetContractSummary,
+  validateIvacTargetContract,
+} from './contracts/ivac-target-contract.js';
+
+import {
   serializeError,
 } from './core/errors.js';
 
@@ -236,6 +242,7 @@ function assertDestructiveRuntimeReady({
   intakeEnabled,
   workflowRuntimeEnabled,
   workflow,
+  targetContract,
   portalResultClient,
 }) {
   if (!intakeEnabled) {
@@ -257,6 +264,17 @@ function assertDestructiveRuntimeReady({
   ) {
     throw new Error(
       'Portal intake cannot be enabled while the workflow definition is disabled.',
+    );
+  }
+
+  if (
+    validateIvacTargetContract(
+      targetContract,
+    )
+    !== true
+  ) {
+    throw new Error(
+      'Portal intake cannot be enabled until the IVAC target contract is verified.',
     );
   }
 
@@ -345,6 +363,34 @@ export async function main() {
       },
     },
     'Workflow definition validated.',
+  );
+
+  /*
+   * Phase 27 bootstrap boundary.
+   *
+   * No production IVAC target endpoint list is trusted here unless
+   * it has been separately verified and represented by a verified
+   * target contract.
+   *
+   * The repository therefore starts with an explicit UNVERIFIED
+   * contract. This keeps target execution fail-closed and prevents
+   * destructive Portal intake from starting merely because a target
+   * base URL is configured.
+   *
+   * Phase 28 may replace this bootstrap source only after concrete
+   * endpoint metadata has been verified from project evidence.
+   */
+  const targetContract =
+    createUnverifiedIvacTargetContract();
+
+  logger.info(
+    {
+      targetContract:
+        getIvacTargetContractSummary(
+          targetContract,
+        ),
+    },
+    'IVAC target contract initialized.',
   );
 
   const databasePath =
@@ -487,6 +533,8 @@ export async function main() {
       workflowRuntimeEnabled,
 
       workflow,
+
+      targetContract,
 
       portalResultClient,
     });
@@ -785,6 +833,9 @@ export async function main() {
 
                 otpConfig:
                   config.otp,
+
+                contract:
+                  targetContract,
 
                 documentConfig:
                   config.documents,
@@ -1508,7 +1559,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          26,
+          27,
 
         environment:
           config.app
@@ -1688,7 +1739,7 @@ export async function main() {
 
     return {
       phase:
-        26,
+        27,
 
       recovery:
         summarizeRecovery(
