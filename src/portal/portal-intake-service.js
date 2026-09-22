@@ -6,6 +6,126 @@ import {
   calculateEffectiveCapacity,
 } from './capacity.js';
 
+function deepFreeze(
+  value,
+) {
+  if (
+    value === null
+    || typeof value !== 'object'
+    || Object.isFrozen(value)
+  ) {
+    return value;
+  }
+
+  Object.freeze(value);
+
+  for (
+    const child
+    of Object.values(value)
+  ) {
+    deepFreeze(child);
+  }
+
+  return value;
+}
+
+function createExecutionInput(
+  normalized,
+) {
+  /*
+   * Portal-sensitive values are intentionally copied only into
+   * an in-memory execution handoff.
+   *
+   * Nothing here is persisted to SQLite.
+   *
+   * The known normalized fields are selected explicitly rather
+   * than forwarding the original Portal response.
+   */
+  return deepFreeze(
+    structuredClone({
+      applicationId:
+        normalized.applicationId,
+
+      userId:
+        normalized.userId,
+
+      phone:
+        normalized.phone,
+
+      password:
+        normalized.password,
+
+      passportNumber:
+        normalized.passportNumber,
+
+      documents:
+        normalized.documents,
+    }),
+  );
+}
+
+function createJobHandoff({
+  job,
+  allocation,
+  normalized,
+}) {
+  const descriptor = {
+    jobId:
+      job.id,
+
+    applicationId:
+      job.applicationId,
+
+    state:
+      job.state,
+
+    allocationId:
+      allocation.allocationId,
+
+    assignedIp:
+      allocation.ip,
+
+    port:
+      allocation.port,
+  };
+
+  /*
+   * executionInput is deliberately non-enumerable.
+   *
+   * The runtime scheduler can access:
+   *
+   *   descriptor.executionInput
+   *
+   * but normal JSON serialization / structured logging of the
+   * job descriptor will not expose the Portal password, phone,
+   * passport number, or document source data.
+   *
+   * This remains memory-only and is intentionally unavailable
+   * after process restart.
+   */
+  Object.defineProperty(
+    descriptor,
+    'executionInput',
+    {
+      value:
+        createExecutionInput(
+          normalized,
+        ),
+
+      enumerable:
+        false,
+
+      configurable:
+        false,
+
+      writable:
+        false,
+    },
+  );
+
+  return descriptor;
+}
+
 export class PortalIntakeService {
   constructor({
     portalClient,
@@ -50,12 +170,18 @@ export class PortalIntakeService {
     if (!health.safeToConsume) {
       return {
         consumed: 0,
+
         created: 0,
+
         duplicates: 0,
+
         effectiveCapacity: 0,
+
         blocker:
           health.status,
+
         health,
+
         jobs: [],
       };
     }
@@ -78,30 +204,42 @@ export class PortalIntakeService {
           this.jobsPerCycle,
 
         healthyAvailableIpCount,
+
         liveAllocationCount,
       });
 
     if (effectiveCapacity === 0) {
       return {
         consumed: 0,
+
         created: 0,
+
         duplicates: 0,
+
         effectiveCapacity: 0,
+
         blocker:
           'NO_EXECUTION_IP',
+
         health,
+
         jobs: [],
       };
     }
 
     const jobs = [];
+
     let consumed = 0;
+
     let created = 0;
+
     let duplicates = 0;
 
     for (
       let index = 0;
+
       index < effectiveCapacity;
+
       index += 1
     ) {
       const reservation =
@@ -201,7 +339,8 @@ export class PortalIntakeService {
               },
             );
 
-        reservationConsumed = true;
+        reservationConsumed =
+          true;
 
         const claimed =
           this.jobStore
@@ -219,25 +358,16 @@ export class PortalIntakeService {
 
         created += 1;
 
-        jobs.push({
-          jobId:
-            waitingForIp.id,
+        jobs.push(
+          createJobHandoff({
+            job:
+              waitingForIp,
 
-          applicationId:
-            waitingForIp.applicationId,
+            allocation,
 
-          state:
-            waitingForIp.state,
-
-          allocationId:
-            allocation.allocationId,
-
-          assignedIp:
-            allocation.ip,
-
-          port:
-            allocation.port,
-        });
+            normalized,
+          }),
+        );
       } catch (error) {
         if (!reservationConsumed) {
           try {
@@ -250,8 +380,12 @@ export class PortalIntakeService {
                 },
               );
           } catch {
-            // Preserve the original intake error.
-            // Durable recovery will handle any orphaned reservation.
+            /*
+             * Preserve the original intake error.
+             *
+             * Durable recovery will handle any orphaned
+             * reservation.
+             */
           }
         }
 
@@ -261,11 +395,18 @@ export class PortalIntakeService {
 
     return {
       consumed,
+
       created,
+
       duplicates,
+
       effectiveCapacity,
-      blocker: null,
+
+      blocker:
+        null,
+
       health,
+
       jobs,
     };
   }

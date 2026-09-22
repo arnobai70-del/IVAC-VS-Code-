@@ -94,12 +94,28 @@ import {
 } from './results/final-result-store.js';
 
 import {
+  ExecutionWorker,
+} from './runtime/execution-worker.js';
+
+import {
+  FinalizingExecutionRunner,
+} from './runtime/finalizing-execution-runner.js';
+
+import {
   GracefulShutdown,
 } from './runtime/graceful-shutdown.js';
 
 import {
+  IntakeExecutionHandler,
+} from './runtime/intake-execution-handler.js';
+
+import {
   IntakeLoop,
 } from './runtime/intake-loop.js';
+
+import {
+  createJobWorkflowExecutor,
+} from './runtime/job-workflow-executor.js';
 
 import {
   SessionManager,
@@ -160,6 +176,55 @@ async function stopDashboardServer(
   }
 
   return false;
+}
+
+function assertDestructiveRuntimeReady({
+  intakeEnabled,
+  workflow,
+  portalResultClient,
+}) {
+  if (!intakeEnabled) {
+    return;
+  }
+
+  /*
+   * Destructive Portal intake must never consume a fresh
+   * application when the local workflow is disabled.
+   *
+   * Without this guard, intake could successfully claim a
+   * Portal application and bind an IP only to discover that
+   * execution is intentionally disabled.
+   */
+  if (
+    workflow.enabled
+    !== true
+  ) {
+    throw new Error(
+      'Portal intake cannot be enabled while workflow execution is disabled.',
+    );
+  }
+
+  /*
+   * Workflow success is not terminal by itself.
+   *
+   * Phase 9 requires durable final-result capture, verified
+   * Portal acknowledgement, terminal job transition, and only
+   * then terminal IP release.
+   *
+   * Therefore destructive intake is blocked unless the verified
+   * Portal result-delivery contract is configured.
+   *
+   * No endpoint, payload, or remote idempotency contract is
+   * invented here.
+   */
+  if (
+    !portalResultClient
+      .isConfigured()
+  ) {
+    throw new Error(
+      'Portal intake cannot be enabled until the verified Portal final-result contract is configured.',
+    );
+  }
 }
 
 export async function main() {
@@ -249,6 +314,9 @@ export async function main() {
   let intakeLoop =
     null;
 
+  let intakeExecutionHandler =
+    null;
+
   try {
     const migrations =
       migrateDatabase(
@@ -288,8 +356,24 @@ export async function main() {
         database,
       );
 
+    /*
+     * This client intentionally remains whatever the verified
+     * Phase 9 implementation currently supports.
+     *
+     * Do not invent a Portal result endpoint or payload here.
+     */
     const portalResultClient =
       new PortalResultClient();
+
+    assertDestructiveRuntimeReady({
+      intakeEnabled:
+        config.runtime
+          .intakeEnabled,
+
+      workflow,
+
+      portalResultClient,
+    });
 
     const proxyConfigPath =
       resolve(
@@ -406,6 +490,17 @@ export async function main() {
             true,
         },
 
+        executionInputRecovery: {
+          durable:
+            false,
+
+          portalCredentialRecovery:
+            false,
+
+          documentSourceRecovery:
+            false,
+        },
+
         documentUploadRecovery: {
           blindReplay:
             false,
@@ -493,6 +588,89 @@ export async function main() {
             .jobsPerCycle,
       });
 
+    /*
+     * ExecutionWorker owns the one-job execution boundary.
+     *
+     * It never acquires a replacement IP. Portal intake has
+     * already bound the allocation before the job reaches this
+     * point.
+     *
+     * The workflow executor is built only after SessionManager
+     * has created the allocation-bound in-memory session.
+     */
+    const executionWorker =
+      new ExecutionWorker({
+        jobStore,
+        ipAllocator,
+        sessionManager,
+
+        executeWorkflow:
+          async ({
+            jobContext,
+            signal,
+          }) => {
+            const executor =
+              createJobWorkflowExecutor({
+                session:
+                  jobContext.session,
+
+                workflow,
+
+                targetConfig:
+                  config.target,
+
+                otpConfig:
+                  config.otp,
+
+                documentConfig:
+                  config.documents,
+
+                portalAccessToken:
+                  config.secrets
+                    .portalApiAccessToken,
+
+                maxSteps:
+                  config.workflow
+                    .maxSteps,
+              });
+
+            return executor.execute({
+              jobContext,
+              signal,
+            });
+          },
+      });
+
+    /*
+     * Workflow success is not terminal until the existing
+     * FinalResultService has durably captured the result,
+     * delivered it through the verified Portal result contract,
+     * received acknowledgement, transitioned the job terminal,
+     * and released the IP for that terminal lifecycle event.
+     */
+    const finalizingExecutionRunner =
+      new FinalizingExecutionRunner({
+        executionWorker,
+        finalResultService,
+      });
+
+    /*
+     * Only freshly consumed in-memory execution handoffs are
+     * admitted here.
+     *
+     * The handoff may contain sensitive Portal input, but it is
+     * non-enumerable on the intake descriptor, never persisted,
+     * never logged by IntakeLoop/handler, and intentionally does
+     * not survive restart.
+     */
+    intakeExecutionHandler =
+      new IntakeExecutionHandler({
+        executionWorker:
+          finalizingExecutionRunner,
+
+        logger,
+      });
+
     intakeLoop =
       new IntakeLoop({
         portalIntakeService,
@@ -502,6 +680,16 @@ export async function main() {
             .intakePollIntervalMs,
 
         logger,
+
+        onCycleResult:
+          async (
+            result,
+          ) => {
+            await intakeExecutionHandler
+              .handleCycleResult(
+                result,
+              );
+          },
       });
 
     logger.info(
@@ -531,9 +719,57 @@ export async function main() {
 
           terminalOnlyIpRelease:
             true,
+
+          executionHandoff: {
+            memoryOnly:
+              true,
+
+            enumerable:
+              false,
+
+            restartRecoverable:
+              false,
+          },
         },
       },
       'Portal intake runtime configured.',
+    );
+
+    logger.info(
+      {
+        executionRuntime: {
+          configured:
+            true,
+
+          workflowEnabled:
+            workflow.enabled,
+
+          intakeExecutionConnected:
+            true,
+
+          sameIpPerJob:
+            true,
+
+          replacementIpAcquisition:
+            false,
+
+          sessionPersistence:
+            false,
+
+          executionInputPersistence:
+            false,
+
+          automaticWorkflowFailureRetry:
+            false,
+
+          finalizationRequired:
+            true,
+
+          terminalOnlyIpRelease:
+            true,
+        },
+      },
+      'Per-job execution runtime configured.',
     );
 
     logger.info(
@@ -545,7 +781,13 @@ export async function main() {
           baselineMatching:
             true,
 
+          sameJobHttpClient:
+            true,
+
           directNetworkFallback:
+            false,
+
+          challengeBypass:
             false,
         },
       },
@@ -556,6 +798,9 @@ export async function main() {
       {
         documentIntegration: {
           sourceAllowlist:
+            true,
+
+          sameJobHttpClient:
             true,
 
           pdfContentTypeValidation:
@@ -624,6 +869,9 @@ export async function main() {
 
           absoluteTargetRoutes:
             false,
+
+          sameJobNetworkPath:
+            true,
 
           challengeBypass:
             false,
@@ -763,6 +1011,23 @@ export async function main() {
 
         stopIntake:
           async () => {
+            /*
+             * First prevent/admit no further workflow execution
+             * and abort currently active workflow waits/requests.
+             *
+             * Then stop IntakeLoop. If a destructive runCycle()
+             * is already in flight, IntakeLoop deliberately waits
+             * for it instead of aborting the uncertain Portal
+             * operation. Its downstream callback sees the stopped
+             * handler and does not start a new workflow.
+             */
+            if (
+              intakeExecutionHandler
+            ) {
+              await intakeExecutionHandler
+                .stop();
+            }
+
             if (
               intakeLoop
             ) {
@@ -828,11 +1093,17 @@ export async function main() {
             explicitOptIn:
               true,
 
+            workflowExecution:
+              true,
+
+            finalResultRequired:
+              true,
+
             automaticFailureRetry:
               false,
           },
         },
-        'Portal intake loop enabled.',
+        'Portal intake and execution loop enabled.',
       );
     } else {
       logger.info(
@@ -845,6 +1116,9 @@ export async function main() {
               'DISABLED',
 
             destructivePortalIntake:
+              false,
+
+            workflowExecution:
               false,
 
             explicitOptInRequired:
@@ -873,7 +1147,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          12,
+          13,
 
         environment:
           config.app
@@ -902,6 +1176,32 @@ export async function main() {
             false,
         },
 
+        execution: {
+          connected:
+            true,
+
+          workflowEnabled:
+            workflow.enabled,
+
+          sameIpPerJob:
+            true,
+
+          replacementIp:
+            false,
+
+          inputPersistence:
+            false,
+
+          sessionPersistence:
+            false,
+
+          challengeBypass:
+            false,
+
+          successRequiresFinalResult:
+            true,
+        },
+
         recovery: {
           enabled:
             true,
@@ -913,6 +1213,9 @@ export async function main() {
             true,
 
           sessionPersistence:
+            false,
+
+          executionInputPersistence:
             false,
 
           terminalOnlyIpRelease:
@@ -934,6 +1237,9 @@ export async function main() {
           waitsForActiveIntake:
             true,
 
+          abortsActiveWorkflow:
+            true,
+
           releasesNonTerminalIp:
             false,
         },
@@ -943,7 +1249,7 @@ export async function main() {
 
     return {
       phase:
-        12,
+        13,
 
       recovery:
         summarizeRecovery(
@@ -959,6 +1265,10 @@ export async function main() {
           intakeLoop
             .getStatus(),
       },
+
+      execution:
+        intakeExecutionHandler
+          .getStatus(),
 
       gracefulShutdown,
     };
