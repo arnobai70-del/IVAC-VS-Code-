@@ -106,6 +106,10 @@ import {
 } from './runtime/finalizing-execution-runner.js';
 
 import {
+  FinalResultRecoveryRunner,
+} from './runtime/final-result-recovery-runner.js';
+
+import {
   GracefulShutdown,
 } from './runtime/graceful-shutdown.js';
 
@@ -155,6 +159,44 @@ function summarizeRecovery(
       results.length,
 
     actions,
+  };
+}
+
+function summarizeFinalResultRecovery(
+  results,
+) {
+  const statuses = {};
+  const reasons = {};
+
+  for (const result of results) {
+    const status =
+      result?.status
+      ?? 'UNKNOWN';
+
+    statuses[status] =
+      (
+        statuses[status]
+        ?? 0
+      ) + 1;
+
+    if (
+      result?.reason
+    ) {
+      reasons[result.reason] =
+        (
+          reasons[result.reason]
+          ?? 0
+        ) + 1;
+    }
+  }
+
+  return {
+    total:
+      results.length,
+
+    statuses,
+
+    reasons,
   };
 }
 
@@ -473,11 +515,42 @@ export async function main() {
       recoveryService
         .recoverAll();
 
+    /*
+     * Final-result restart recovery remains outside workflow
+     * execution and workflow retry.
+     *
+     * RecoveryService first classifies/repairs durable restart
+     * state. This runner may then re-enter delivery only from the
+     * already-durable final-result ledger.
+     *
+     * With the default unconfigured Portal result contract all
+     * delivery attempts remain fail-closed.
+     *
+     * UNCERTAIN delivery is replayed only if verified remote
+     * idempotency is explicitly declared by that contract.
+     */
+    const finalResultRecoveryRunner =
+      new FinalResultRecoveryRunner({
+        finalResultService,
+        portalResultClient,
+      });
+
+    const finalResultRecoveryResults =
+      await finalResultRecoveryRunner
+        .run(
+          recoveryResults,
+        );
+
     logger.info(
       {
         recovery:
           summarizeRecovery(
             recoveryResults,
+          ),
+
+        finalResultRecovery:
+          summarizeFinalResultRecovery(
+            finalResultRecoveryResults,
           ),
 
         sessionRecovery: {
@@ -983,6 +1056,11 @@ export async function main() {
 
           staleInFlightOnRestart:
             'UNCERTAIN',
+
+          restartDeliveryRecovery:
+            summarizeFinalResultRecovery(
+              finalResultRecoveryResults,
+            ),
         },
       },
       'Final-result integration safety boundaries configured.',
@@ -1314,7 +1392,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          16,
+          17,
 
         environment:
           config.app
@@ -1441,6 +1519,11 @@ export async function main() {
 
           terminalOnlyIpRelease:
             true,
+
+          finalResultDeliveryRecovery:
+            summarizeFinalResultRecovery(
+              finalResultRecoveryResults,
+            ),
         },
 
         gracefulShutdown: {
@@ -1476,11 +1559,16 @@ export async function main() {
 
     return {
       phase:
-        16,
+        17,
 
       recovery:
         summarizeRecovery(
           recoveryResults,
+        ),
+
+      finalResultRecovery:
+        summarizeFinalResultRecovery(
+          finalResultRecoveryResults,
         ),
 
       intake: {

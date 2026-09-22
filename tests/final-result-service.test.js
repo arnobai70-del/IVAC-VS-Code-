@@ -797,6 +797,356 @@ test(
 );
 
 test(
+  'resumeDelivery sends an existing pending durable result without reconstructing the final payload',
+  async () => {
+    let sendCount =
+      0;
+
+    const fixture =
+      createFixture({
+        contract: {
+          async send() {
+            sendCount +=
+              1;
+
+            return {
+              accepted:
+                true,
+
+              statusCode:
+                200,
+            };
+          },
+        },
+      });
+
+    try {
+      const job =
+        createRunningJob(
+          fixture,
+          'app-result-resume-pending',
+        );
+
+      const normalized =
+        normalizeFinalResult({
+          jobId:
+            job.id,
+
+          applicationId:
+            job.applicationId,
+
+          outcome:
+            FINAL_RESULT_OUTCOMES
+              .SUCCESS,
+
+          data: {
+            reference:
+              'durable-pending-ref',
+          },
+        });
+
+      fixture.results
+        .createOrGet(
+          normalized,
+        );
+
+      const durableBefore =
+        fixture.results
+          .getByJobId(
+            job.id,
+          );
+
+      assert.equal(
+        durableBefore.data.reference,
+        'durable-pending-ref',
+      );
+
+      const completed =
+        await fixture.service
+          .resumeDelivery(
+            job.id,
+          );
+
+      assert.equal(
+        sendCount,
+        1,
+      );
+
+      assert.equal(
+        completed.resultCreated,
+        false,
+      );
+
+      assert.equal(
+        completed.deliveryReused,
+        false,
+      );
+
+      assert.equal(
+        completed.job.state,
+        JOB_STATES.COMPLETED,
+      );
+
+      assert.equal(
+        completed.result
+          .deliveryStatus,
+        FINAL_RESULT_DELIVERY_STATUSES
+          .DELIVERED,
+      );
+
+      assert.equal(
+        completed.result
+          .data
+          .reference,
+        'durable-pending-ref',
+      );
+
+      assert.equal(
+        completed.ipRelease
+          .released,
+        true,
+      );
+    } finally {
+      closeDatabase(
+        fixture.database,
+      );
+    }
+  },
+);
+
+test(
+  'resumeDelivery blocks uncertain replay when verified remote idempotency is unavailable',
+  async () => {
+    let sendCount =
+      0;
+
+    const fixture =
+      createFixture({
+        contract: {
+          supportsIdempotentReplay:
+            false,
+
+          async send() {
+            sendCount +=
+              1;
+
+            throw new Error(
+              'send must not run for blocked uncertain replay',
+            );
+          },
+        },
+      });
+
+    try {
+      const job =
+        createRunningJob(
+          fixture,
+          'app-result-resume-uncertain-blocked',
+        );
+
+      const normalized =
+        normalizeFinalResult({
+          jobId:
+            job.id,
+
+          applicationId:
+            job.applicationId,
+
+          outcome:
+            FINAL_RESULT_OUTCOMES
+              .SUCCESS,
+        });
+
+      fixture.results
+        .createOrGet(
+          normalized,
+        );
+
+      fixture.results
+        .beginDelivery(
+          job.id,
+        );
+
+      fixture.results
+        .markUncertain(
+          job.id,
+          new AppError(
+            'Delivery outcome unknown.',
+            {
+              code:
+                'PORTAL_RESULT_NETWORK_UNCERTAIN',
+
+              retryable:
+                true,
+            },
+          ),
+        );
+
+      await assert.rejects(
+        fixture.service
+          .resumeDelivery(
+            job.id,
+          ),
+
+        (error) => (
+          error.code
+          === FINAL_RESULT_ERROR_CODES
+            .PORTAL_RESULT_DELIVERY_UNCERTAIN
+        ),
+      );
+
+      assert.equal(
+        sendCount,
+        0,
+      );
+
+      assert.equal(
+        fixture.results
+          .getByJobId(
+            job.id,
+          )
+          .deliveryStatus,
+        FINAL_RESULT_DELIVERY_STATUSES
+          .UNCERTAIN,
+      );
+
+      assert.equal(
+        fixture.jobs
+          .getJobById(
+            job.id,
+          )
+          .state,
+        JOB_STATES.RUNNING,
+      );
+
+      assert.ok(
+        fixture.allocator
+          .getActiveForJob(
+            job.id,
+          ),
+      );
+    } finally {
+      closeDatabase(
+        fixture.database,
+      );
+    }
+  },
+);
+
+test(
+  'resumeDelivery replays uncertain result only when verified remote idempotency is declared',
+  async () => {
+    let sendCount =
+      0;
+
+    const fixture =
+      createFixture({
+        contract: {
+          supportsIdempotentReplay:
+            true,
+
+          async send() {
+            sendCount +=
+              1;
+
+            return {
+              accepted:
+                true,
+
+              statusCode:
+                200,
+            };
+          },
+        },
+      });
+
+    try {
+      const job =
+        createRunningJob(
+          fixture,
+          'app-result-resume-uncertain-safe',
+        );
+
+      const normalized =
+        normalizeFinalResult({
+          jobId:
+            job.id,
+
+          applicationId:
+            job.applicationId,
+
+          outcome:
+            FINAL_RESULT_OUTCOMES
+              .SUCCESS,
+
+          data: {
+            reference:
+              'uncertain-safe-ref',
+          },
+        });
+
+      fixture.results
+        .createOrGet(
+          normalized,
+        );
+
+      fixture.results
+        .beginDelivery(
+          job.id,
+        );
+
+      fixture.results
+        .markUncertain(
+          job.id,
+          new AppError(
+            'Delivery outcome unknown.',
+            {
+              code:
+                'PORTAL_RESULT_NETWORK_UNCERTAIN',
+
+              retryable:
+                true,
+            },
+          ),
+        );
+
+      const completed =
+        await fixture.service
+          .resumeDelivery(
+            job.id,
+          );
+
+      assert.equal(
+        sendCount,
+        1,
+      );
+
+      assert.equal(
+        completed.job.state,
+        JOB_STATES.COMPLETED,
+      );
+
+      assert.equal(
+        completed.result
+          .deliveryStatus,
+        FINAL_RESULT_DELIVERY_STATUSES
+          .DELIVERED,
+      );
+
+      assert.equal(
+        completed.ipRelease
+          .released,
+        true,
+      );
+    } finally {
+      closeDatabase(
+        fixture.database,
+      );
+    }
+  },
+);
+
+test(
   'failure result becomes FAILED_FINAL only after Portal acknowledgement',
   async () => {
     const fixture =

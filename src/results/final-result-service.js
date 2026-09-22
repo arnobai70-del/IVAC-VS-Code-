@@ -181,6 +181,224 @@ export class FinalResultService {
     };
   }
 
+  async deliverRecord(
+    record,
+    {
+      resultCreated,
+    },
+  ) {
+    if (
+      record.deliveryStatus
+      === FINAL_RESULT_DELIVERY_STATUSES
+        .DELIVERED
+    ) {
+      return {
+        ...this.finalizeDeliveredRecord(
+          record,
+        ),
+
+        resultCreated,
+
+        deliveryReused:
+          true,
+      };
+    }
+
+    if (
+      !this.portalResultClient
+        .isConfigured()
+    ) {
+      throw new PortalResultNotConfiguredError(
+        'Final result was captured durably, but the verified Portal result contract is not configured.',
+        {
+          details: {
+            deliveryCertainty:
+              PORTAL_RESULT_DELIVERY_CERTAINTY
+                .NOT_SENT,
+          },
+        },
+      );
+    }
+
+    let deliveryRecord =
+      record;
+
+    if (
+      deliveryRecord.deliveryStatus
+        === FINAL_RESULT_DELIVERY_STATUSES
+          .PENDING
+      && deliveryRecord
+        .lastDeliveryCertainty
+        === PORTAL_RESULT_DELIVERY_CERTAINTY
+          .UNCERTAIN
+      && !this.portalResultClient
+        .supportsIdempotentReplay()
+    ) {
+      throw new PortalResultDeliveryUncertainError(
+        `Portal final-result delivery for job ${deliveryRecord.jobId} was previously uncertain; replay is blocked without verified remote idempotency.`,
+      );
+    }
+
+    if (
+      deliveryRecord.deliveryStatus
+      === FINAL_RESULT_DELIVERY_STATUSES
+        .UNCERTAIN
+    ) {
+      if (
+        !this.portalResultClient
+          .supportsIdempotentReplay()
+      ) {
+        throw new PortalResultDeliveryUncertainError(
+          `Portal final-result delivery for job ${deliveryRecord.jobId} is uncertain; replay is blocked without verified remote idempotency.`,
+        );
+      }
+
+      deliveryRecord =
+        this.finalResultStore
+          .requeueUncertain(
+            deliveryRecord.jobId,
+          );
+    }
+
+    const allocation =
+      this.ipAllocator
+        .getActiveForJob(
+          deliveryRecord.jobId,
+        );
+
+    if (!allocation) {
+      throw new FinalResultConflictError(
+        `Job ${deliveryRecord.jobId} has no live IP allocation while final-result delivery is pending.`,
+      );
+    }
+
+    const started =
+      this.finalResultStore
+        .beginDelivery(
+          deliveryRecord.jobId,
+        );
+
+    if (
+      !started.started
+    ) {
+      return {
+        ...this.finalizeDeliveredRecord(
+          started.record,
+        ),
+
+        resultCreated,
+
+        deliveryReused:
+          true,
+      };
+    }
+
+    let deliveredRecord;
+
+    try {
+      const acknowledgement =
+        await this.portalResultClient
+          .sendResult({
+            record:
+              started.record,
+
+            job:
+              this.getJob(
+                deliveryRecord.jobId,
+              ),
+
+            allocation,
+          });
+
+      deliveredRecord =
+        this.finalResultStore
+          .markDelivered(
+            deliveryRecord.jobId,
+            {
+              httpStatus:
+                acknowledgement
+                  .statusCode,
+            },
+          );
+    } catch (error) {
+      const certainty =
+        deliveryCertainty(
+          error,
+        );
+
+      const replaySafe =
+        this.portalResultClient
+          .supportsIdempotentReplay();
+
+      if (
+        certainty
+          === PORTAL_RESULT_DELIVERY_CERTAINTY
+            .NOT_SENT
+        || certainty
+          === PORTAL_RESULT_DELIVERY_CERTAINTY
+            .REJECTED
+        || replaySafe
+      ) {
+        this.finalResultStore
+          .markPendingAfterFailure(
+            deliveryRecord.jobId,
+            error,
+            {
+              deliveryCertainty:
+                certainty,
+            },
+          );
+      } else {
+        this.finalResultStore
+          .markUncertain(
+            deliveryRecord.jobId,
+            error,
+          );
+      }
+
+      throw error;
+    }
+
+    return {
+      ...this.finalizeDeliveredRecord(
+        deliveredRecord,
+      ),
+
+      resultCreated,
+
+      deliveryReused:
+        false,
+    };
+  }
+
+  async resumeDelivery(
+    jobId,
+  ) {
+    this.getJob(
+      jobId,
+    );
+
+    const record =
+      this.finalResultStore
+        .getByJobId(
+          jobId,
+        );
+
+    if (!record) {
+      throw new FinalResultConflictError(
+        `Job ${jobId} has no durable final result to resume.`,
+      );
+    }
+
+    return this.deliverRecord(
+      record,
+      {
+        resultCreated:
+          false,
+      },
+    );
+  }
+
   async finalize({
     jobId,
     outcome,
@@ -230,172 +448,12 @@ export class FinalResultService {
           normalized,
         );
 
-    let record =
-      resultState.record;
-
-    if (
-      record.deliveryStatus
-      === FINAL_RESULT_DELIVERY_STATUSES
-        .DELIVERED
-    ) {
-      return {
-        ...this.finalizeDeliveredRecord(
-          record,
-        ),
-
+    return this.deliverRecord(
+      resultState.record,
+      {
         resultCreated:
           resultState.created,
-
-        deliveryReused:
-          true,
-      };
-    }
-
-    if (
-      !this.portalResultClient
-        .isConfigured()
-    ) {
-      throw new PortalResultNotConfiguredError(
-        'Final result was captured durably, but the verified Portal result contract is not configured.',
-        {
-          details: {
-            deliveryCertainty:
-              PORTAL_RESULT_DELIVERY_CERTAINTY
-                .NOT_SENT,
-          },
-        },
-      );
-    }
-
-    if (
-      record.deliveryStatus
-      === FINAL_RESULT_DELIVERY_STATUSES
-        .UNCERTAIN
-    ) {
-      if (
-        !this.portalResultClient
-          .supportsIdempotentReplay()
-      ) {
-        throw new PortalResultDeliveryUncertainError(
-          `Portal final-result delivery for job ${jobId} is uncertain; replay is blocked without verified remote idempotency.`,
-        );
-      }
-
-      record =
-        this.finalResultStore
-          .requeueUncertain(
-            jobId,
-          );
-    }
-
-    const allocation =
-      this.ipAllocator
-        .getActiveForJob(
-          jobId,
-        );
-
-    if (!allocation) {
-      throw new FinalResultConflictError(
-        `Job ${jobId} has no live IP allocation while final-result delivery is pending.`,
-      );
-    }
-
-    const started =
-      this.finalResultStore
-        .beginDelivery(
-          jobId,
-        );
-
-    if (
-      !started.started
-    ) {
-      return {
-        ...this.finalizeDeliveredRecord(
-          started.record,
-        ),
-
-        resultCreated:
-          resultState.created,
-
-        deliveryReused:
-          true,
-      };
-    }
-
-    try {
-      const acknowledgement =
-        await this.portalResultClient
-          .sendResult({
-            record:
-              started.record,
-
-            job:
-              this.getJob(
-                jobId,
-              ),
-
-            allocation,
-          });
-
-      record =
-        this.finalResultStore
-          .markDelivered(
-            jobId,
-            {
-              httpStatus:
-                acknowledgement
-                  .statusCode,
-            },
-          );
-    } catch (error) {
-      const certainty =
-        deliveryCertainty(
-          error,
-        );
-
-      const replaySafe =
-        this.portalResultClient
-          .supportsIdempotentReplay();
-
-      if (
-        certainty
-          === PORTAL_RESULT_DELIVERY_CERTAINTY
-            .NOT_SENT
-        || certainty
-          === PORTAL_RESULT_DELIVERY_CERTAINTY
-            .REJECTED
-        || replaySafe
-      ) {
-        this.finalResultStore
-          .markPendingAfterFailure(
-            jobId,
-            error,
-            {
-              deliveryCertainty:
-                certainty,
-            },
-          );
-      } else {
-        this.finalResultStore
-          .markUncertain(
-            jobId,
-            error,
-          );
-      }
-
-      throw error;
-    }
-
-    return {
-      ...this.finalizeDeliveredRecord(
-        record,
-      ),
-
-      resultCreated:
-        resultState.created,
-
-      deliveryReused:
-        false,
-    };
+      },
+    );
   }
 }
