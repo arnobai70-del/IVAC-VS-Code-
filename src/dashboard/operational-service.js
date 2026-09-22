@@ -57,6 +57,18 @@ function asSafeNumber(value) {
   return null;
 }
 
+function asSafeCount(value) {
+  if (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
 function asSafeBoolean(value) {
   return typeof value === "boolean" ? value : null;
 }
@@ -393,6 +405,40 @@ function projectFinalResult(record) {
   };
 }
 
+function projectRuntimeStatus(record) {
+  if (!isObject(record)) {
+    return null;
+  }
+
+  const inFlight =
+    asSafeCount(
+      firstDefined(record, [
+        "inFlight",
+        "in_flight",
+      ]),
+    );
+
+  const memoryContexts =
+    asSafeCount(
+      firstDefined(record, [
+        "memoryContexts",
+        "memory_contexts",
+      ]),
+    );
+
+  if (
+    inFlight === null ||
+    memoryContexts === null
+  ) {
+    return null;
+  }
+
+  return {
+    inFlight,
+    memoryContexts,
+  };
+}
+
 function countByState(records, selector) {
   const counts = Object.create(null);
 
@@ -608,13 +654,23 @@ export class OperationalService {
     }
 
     try {
-      const status =
+      const rawStatus =
         await this.runtimeStatusProvider();
+
+      const status =
+        projectRuntimeStatus(rawStatus);
+
+      if (!status) {
+        return {
+          configured: true,
+          status: null,
+          reason: "INVALID_RUNTIME_STATUS",
+        };
+      }
 
       return {
         configured: true,
-        status:
-          sanitizeOperationalValue(status),
+        status,
       };
     } catch (error) {
       return {

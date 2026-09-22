@@ -353,21 +353,19 @@ test("configured runtime status provider exposes bounded counters", async () => 
   const runtimeStatus =
     await service.getRuntimeStatus();
 
-  assert.equal(
-    runtimeStatus.configured,
-    true,
-  );
-
   assert.deepEqual(
-    { ...runtimeStatus.status },
+    runtimeStatus,
     {
-      inFlight: 2,
-      memoryContexts: 3,
+      configured: true,
+      status: {
+        inFlight: 2,
+        memoryContexts: 3,
+      },
     },
   );
 });
 
-test("runtime status provider output is sanitized", async () => {
+test("runtime status provider output uses a strict allowlist", async () => {
   const fixture = createFixture();
 
   const service = new OperationalService({
@@ -379,6 +377,12 @@ test("runtime status provider output is sanitized", async () => {
     runtimeStatusProvider: async () => ({
       inFlight: 1,
       memoryContexts: 2,
+
+      harmlessExtraField: "must-not-appear",
+      nested: {
+        internal: true,
+      },
+
       token: "must-not-leak",
       cookie: "session-secret",
       otp: "123456",
@@ -389,28 +393,201 @@ test("runtime status provider output is sanitized", async () => {
   const runtimeStatus =
     await service.getRuntimeStatus();
 
-  assert.equal(
-    runtimeStatus.configured,
-    true,
+  assert.deepEqual(
+    runtimeStatus,
+    {
+      configured: true,
+      status: {
+        inFlight: 1,
+        memoryContexts: 2,
+      },
+    },
   );
 
   assert.equal(
-    runtimeStatus.status.inFlight,
-    1,
+    Object.hasOwn(
+      runtimeStatus.status,
+      "harmlessExtraField",
+    ),
+    false,
   );
 
   assert.equal(
-    runtimeStatus.status.memoryContexts,
-    2,
+    Object.hasOwn(
+      runtimeStatus.status,
+      "nested",
+    ),
+    false,
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      runtimeStatus.status,
+      "token",
+    ),
+    false,
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      runtimeStatus.status,
+      "cookie",
+    ),
+    false,
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      runtimeStatus.status,
+      "otp",
+    ),
+    false,
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      runtimeStatus.status,
+      "password",
+    ),
+    false,
   );
 
   const serialized =
     JSON.stringify(runtimeStatus);
 
-  assert.doesNotMatch(serialized, /must-not-leak/i);
-  assert.doesNotMatch(serialized, /session-secret/i);
-  assert.doesNotMatch(serialized, /123456/);
-  assert.doesNotMatch(serialized, /password-secret/i);
+  assert.doesNotMatch(
+    serialized,
+    /must-not-appear/i,
+  );
+
+  assert.doesNotMatch(
+    serialized,
+    /must-not-leak/i,
+  );
+
+  assert.doesNotMatch(
+    serialized,
+    /session-secret/i,
+  );
+
+  assert.doesNotMatch(
+    serialized,
+    /123456/,
+  );
+
+  assert.doesNotMatch(
+    serialized,
+    /password-secret/i,
+  );
+});
+
+test("runtime status rejects invalid counter values fail-closed", async () => {
+  const fixture = createFixture();
+
+  const invalidStatuses = [
+    null,
+    "invalid",
+    {},
+    {
+      inFlight: -1,
+      memoryContexts: 0,
+    },
+    {
+      inFlight: 0,
+      memoryContexts: -1,
+    },
+    {
+      inFlight: 1.5,
+      memoryContexts: 0,
+    },
+    {
+      inFlight: 0,
+      memoryContexts: 2.5,
+    },
+    {
+      inFlight: "1",
+      memoryContexts: 0,
+    },
+    {
+      inFlight: 0,
+      memoryContexts: "2",
+    },
+    {
+      inFlight:
+        Number.MAX_SAFE_INTEGER + 1,
+      memoryContexts: 0,
+    },
+    {
+      inFlight: 0,
+      memoryContexts:
+        Number.MAX_SAFE_INTEGER + 1,
+    },
+    {
+      inFlight: Number.NaN,
+      memoryContexts: 0,
+    },
+    {
+      inFlight: 0,
+      memoryContexts: Number.POSITIVE_INFINITY,
+    },
+  ];
+
+  for (
+    const rawStatus
+    of invalidStatuses
+  ) {
+    const service =
+      new OperationalService({
+        jobStore:
+          fixture.service.jobStore,
+        ipAllocator:
+          fixture.service.ipAllocator,
+        proxyPool:
+          fixture.service.proxyPool,
+        finalResultStore:
+          fixture.service.finalResultStore,
+        runtimeStatusProvider:
+          async () =>
+            rawStatus,
+      });
+
+    assert.deepEqual(
+      await service.getRuntimeStatus(),
+      {
+        configured: true,
+        status: null,
+        reason:
+          "INVALID_RUNTIME_STATUS",
+      },
+    );
+  }
+});
+
+test("runtime status accepts zero counters", async () => {
+  const fixture = createFixture();
+
+  const service = new OperationalService({
+    jobStore: fixture.service.jobStore,
+    ipAllocator: fixture.service.ipAllocator,
+    proxyPool: fixture.service.proxyPool,
+    finalResultStore:
+      fixture.service.finalResultStore,
+    runtimeStatusProvider: async () => ({
+      inFlight: 0,
+      memoryContexts: 0,
+    }),
+  });
+
+  assert.deepEqual(
+    await service.getRuntimeStatus(),
+    {
+      configured: true,
+      status: {
+        inFlight: 0,
+        memoryContexts: 0,
+      },
+    },
+  );
 });
 
 test("runtime status provider errors are safely projected", async () => {
