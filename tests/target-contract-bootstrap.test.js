@@ -508,7 +508,7 @@ test(
 
 
 test(
-  'application bootstrap uses Phase 38 security hardening with existing readiness gates',
+  'application bootstrap uses Phase 39 release validation with existing readiness gates',
   () => {
     const source =
       readFileSync(
@@ -794,11 +794,11 @@ test(
     );
 
     /*
-     * Bootstrap surfaces bounded readiness states and Phase 38.
+     * Bootstrap surfaces bounded readiness states and Phase 39.
      */
     assert.match(
       source,
-      /phase:\s*38/,
+      /phase:\s*39/,
     );
 
     assert.match(
