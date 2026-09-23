@@ -508,7 +508,7 @@ test(
 
 
 test(
-  'application bootstrap uses Phase 31 proxy readiness with verified auth contract',
+  'application bootstrap uses Phase 32 secret and proxy readiness with verified auth contract',
   () => {
     const source =
       readFileSync(
@@ -539,7 +539,7 @@ test(
     );
 
     /*
-     * Phase 30 static destructive-runtime readiness remains wired.
+     * Phase 30 static destructive runtime readiness remains wired.
      */
     assert.equal(
       source.includes(
@@ -568,7 +568,7 @@ test(
     );
 
     /*
-     * Phase 31 adds bounded proxy/network readiness.
+     * Phase 31 proxy readiness remains wired and fail-closed.
      */
     assert.equal(
       source.includes(
@@ -612,17 +612,6 @@ test(
       true,
     );
 
-    assert.equal(
-      source.includes(
-        'proxyReadiness',
-      ),
-      true,
-    );
-
-    /*
-     * Safe startup inspects only. Destructive intake is the only
-     * path allowed to invoke active proxy health probing.
-     */
     assert.match(
       source,
       /config\.runtime\s*\.intakeEnabled\s*\?\s*await probeProxyReadiness/,
@@ -633,17 +622,59 @@ test(
       /:\s*inspectProxyPoolReadiness/,
     );
 
+    /*
+     * Phase 32 secret/environment readiness must be evaluated before
+     * destructive intake can proceed.
+     */
+    assert.equal(
+      source.includes(
+        "from './runtime/secret-readiness.js';",
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'inspectSecretReadiness',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'assertSecretReadinessForIntake',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'secretReadiness',
+      ),
+      true,
+    );
+
     assert.match(
       source,
-      /assertProxyReadinessForIntake/,
+      /portalApiAccessToken:\s*config\.secrets\s*\.portalApiAccessToken/,
+    );
+
+    assert.match(
+      source,
+      /readiness:\s*secretReadiness/,
     );
 
     /*
-     * Phase 31 readiness is surfaced from bootstrap.
+     * Bootstrap surfaces bounded readiness state only.
      */
     assert.match(
       source,
-      /phase:\s*31/,
+      /phase:\s*32/,
+    );
+
+    assert.match(
+      source,
+      /secretReadiness,/,
     );
 
     assert.match(

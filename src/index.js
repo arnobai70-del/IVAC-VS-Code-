@@ -156,6 +156,11 @@ import {
 } from './runtime/runtime-readiness.js';
 
 import {
+  assertSecretReadinessForIntake,
+  inspectSecretReadiness,
+} from './runtime/secret-readiness.js';
+
+import {
   SessionManager,
 } from './session/session-manager.js';
 
@@ -437,6 +442,51 @@ export async function main() {
       new RecoveryStore(
         database,
       );
+
+    /*
+     * Phase 32 secret/environment readiness boundary.
+     *
+     * Safe startup does not require production credentials while
+     * destructive Portal intake remains disabled.
+     *
+     * Once destructive intake is explicitly enabled, the
+     * environment-only Portal API token must already be configured.
+     *
+     * The readiness result intentionally contains only booleans and
+     * reason codes. The secret value is never copied into readiness
+     * output or operational logs.
+     */
+    const secretReadiness =
+      inspectSecretReadiness({
+        intakeEnabled:
+          config.runtime
+            .intakeEnabled,
+
+        portalResultEnabled:
+          config.portal
+            .result
+            .enabled,
+
+        portalApiAccessToken:
+          config.secrets
+            .portalApiAccessToken,
+      });
+
+    assertSecretReadinessForIntake({
+      intakeEnabled:
+        config.runtime
+          .intakeEnabled,
+
+      readiness:
+        secretReadiness,
+    });
+
+    logger.info(
+      {
+        secretReadiness,
+      },
+      'Secret readiness evaluated.',
+    );
 
     /*
      * The verified production result/status route is known, but
@@ -927,23 +977,6 @@ export async function main() {
           },
       });
 
-    /*
-     * Retry boundary wraps workflow execution only.
-     *
-     * Explicitly retryable failures:
-     *
-     * - consume durable retry budget;
-     * - keep the same IP;
-     * - move through RETRY_PENDING;
-     * - use bounded retry-policy delay;
-     * - reuse same-process session/context where possible.
-     *
-     * Manual challenge and shutdown are never automatically
-     * retried.
-     *
-     * After an explicit manual resume, a later distinct retryable
-     * execution failure may enter the normal bounded retry path.
-     */
     const retryingExecutionRunner =
       new RetryingExecutionRunner({
         executionWorker,
@@ -954,22 +987,6 @@ export async function main() {
           DEFAULT_MAX_RETRIES,
       });
 
-    /*
-     * Finalization is OUTSIDE the workflow retry boundary.
-     *
-     * This prevents a Portal final-result delivery error from
-     * replaying the target workflow.
-     *
-     * SUCCESS becomes COMPLETED only after verified Portal
-     * acknowledgement.
-     *
-     * NON_RETRYABLE / EXHAUSTED execution failure becomes
-     * FAILED_FINAL only after verified Portal acknowledgement.
-     *
-     * Explicit manual resume passes through the same finalization
-     * boundary only after workflow execution reaches a terminal
-     * execution outcome.
-     */
     const finalizingExecutionRunner =
       new FinalizingExecutionRunner({
         executionWorker:
@@ -978,15 +995,6 @@ export async function main() {
         finalResultService,
       });
 
-    /*
-     * Admission and shutdown ownership for both:
-     *
-     * - fresh intake execution;
-     * - explicit same-process manual challenge resume.
-     *
-     * There is intentionally no automatic resume path and no
-     * dashboard mutation endpoint.
-     */
     intakeExecutionHandler =
       new IntakeExecutionHandler({
         executionWorker:
@@ -1079,11 +1087,9 @@ export async function main() {
           configured:
             true,
 
-          workflowRuntimeEnabled:
-            workflowRuntimeEnabled,
+          workflowRuntimeEnabled,
 
-          workflowDefinitionEnabled:
-            workflowDefinitionEnabled,
+          workflowDefinitionEnabled,
 
           workflowEnabled:
             workflowExecutionEnabled,
@@ -1474,14 +1480,6 @@ export async function main() {
 
         stopIntake:
           async () => {
-            /*
-             * Stop workflow admission first.
-             *
-             * Active fresh execution, explicit manual resume, or
-             * retry wait receives an abort signal. No path releases
-             * a non-terminal IP or consumes a fresh retry because
-             * of shutdown.
-             */
             if (
               intakeExecutionHandler
             ) {
@@ -1489,13 +1487,6 @@ export async function main() {
                 .stop();
             }
 
-            /*
-             * Destructive Portal runCycle() is never aborted.
-             *
-             * If already active, IntakeLoop waits for it. Its
-             * callback sees the stopped execution handler and
-             * therefore does not admit fresh workflow execution.
-             */
             if (
               intakeLoop
             ) {
@@ -1556,11 +1547,9 @@ export async function main() {
             explicitOptIn:
               true,
 
-            workflowRuntimeEnabled:
-              workflowRuntimeEnabled,
+            workflowRuntimeEnabled,
 
-            workflowDefinitionEnabled:
-              workflowDefinitionEnabled,
+            workflowDefinitionEnabled,
 
             workflowExecution:
               workflowExecutionEnabled,
@@ -1600,11 +1589,9 @@ export async function main() {
             destructivePortalIntake:
               false,
 
-            workflowRuntimeEnabled:
-              workflowRuntimeEnabled,
+            workflowRuntimeEnabled,
 
-            workflowDefinitionEnabled:
-              workflowDefinitionEnabled,
+            workflowDefinitionEnabled,
 
             workflowExecution:
               false,
@@ -1630,7 +1617,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          31,
+          32,
 
         environment:
           config.app
@@ -1639,6 +1626,8 @@ export async function main() {
         dashboardEnabled:
           config.dashboard
             .enabled,
+
+        secretReadiness,
 
         proxyReadiness,
 
@@ -1674,11 +1663,9 @@ export async function main() {
           connected:
             true,
 
-          workflowRuntimeEnabled:
-            workflowRuntimeEnabled,
+          workflowRuntimeEnabled,
 
-          workflowDefinitionEnabled:
-            workflowDefinitionEnabled,
+          workflowDefinitionEnabled,
 
           workflowEnabled:
             workflowExecutionEnabled,
@@ -1812,10 +1799,12 @@ export async function main() {
 
     return {
       phase:
-        31,
+        32,
 
       readiness:
         runtimeReadiness,
+
+      secretReadiness,
 
       proxyReadiness,
 
