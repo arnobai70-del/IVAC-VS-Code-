@@ -1,724 +1,891 @@
 # IVAC Automation Platform
 
-Production-oriented Node.js automation platform built around:
+A safety-focused Node.js automation runtime for bounded IVAC authentication workflows, durable job lifecycle management, exclusive per-job IP allocation, OTP handling, PDF document processing, conservative retry/recovery, final-result delivery, and read-only operational observability.
 
-- isolated per-job state
-- exclusive IP ownership
-- durable SQLite job state
-- controlled bounded retries
-- isolated per-job network sessions
-- OTP isolation
-- safe JSON-driven workflows
-- secure PDF document handling
-- idempotent final-result reporting
-- read-only operational dashboard
-- restart recovery
-- graceful shutdown
-- explicit manual-challenge handling
-- same-process workflow resume without replaying completed steps
-- fail-closed workflow runtime activation
-- safe final-result restart recovery
+The system is designed to remain fail-closed and non-destructive by default.
 
-## Current Development Status
+## Release Status
 
-Phase 26 is complete.
+Current planned implementation checkpoint:
 
-Latest functional checkpoint before Phase 26 synchronization:
+- Phase 39 release validation: complete
+- Phase 40 documentation / runbook / final release checkpoint: current final checkpoint
+- Phase 39 remote checkpoint: `4dce688c5ca267f6e498159e65b1ddd202a85597`
+- automated tests: `526`
+- passing: `526`
+- failing: `0`
+- production dependency audit: `0 vulnerabilities`
+- Node.js release requirement: `>=22.0.0`
 
-`bbc03e1 feat: harden runtime status contract`
+The completed automated checks validate the repository state exercised by those checks. They are not a claim that software can never contain defects.
 
-Current implementation remains intentionally fail-closed and non-destructive by default.
+## Project Scope
 
-Portal intake is disabled by default, workflow execution is disabled by default, the workflow definition is disabled by default, the dashboard is disabled by default, and externally verified runtime activation remains explicit.
+The current IVAC target workflow is intentionally bounded to verified authentication behavior.
 
-Phases 19 through 25 added the IVAC workflow policy boundary, IVAC target contract boundary and runtime enforcement, workflow readiness inspection, runtime dashboard status bridging, and strict runtime-status contract hardening.
+Verified IVAC target routes:
 
-Phase 26 synchronizes the project checkpoint documentation and bootstrap phase marker with the implemented repository state.
+- `POST /auth/sign-in-v2`
+- `POST /otp/verifySigninOtp`
 
-No Phase 26 change adds a mutation endpoint, bypasses a manual challenge, persists sensitive runtime context, or weakens existing fail-closed execution boundaries.
+The repository does not claim support for IVAC payment, appointment submission, application submission, or other unverified target operations.
+
+No unverified IVAC endpoint may be added to workflow execution merely because a route is guessed or observed elsewhere.
 
 ## Completed Phases
 
-### Phase 1 â€” Foundation
-
-Implemented:
-
-- Node.js project scaffold
-- validated static configuration
-- `.env.local` secret loading
-- structured application errors
-- structured logging
-- sensitive-field log redaction
-- configuration tests
-- logging tests
-- error tests
-
-### Phase 2 â€” SQLite / Durable Job State
-
-Implemented:
-
-- SQLite persistence
-- migrations
-- durable jobs
-- job lifecycle state machine
-- optimistic job versioning
-- retry counters
-- terminal job handling
-- restart-visible non-terminal jobs
-
-### Phase 3 â€” Proxy / IP Allocation
-
-Implemented:
-
-- proxy configuration
-- proxy pool
-- health/cooldown state
-- exclusive job-to-IP allocation
-- one active job per IP
-- same-job IP preservation across retry
-- allocation-safe dispatcher isolation
-- terminal-only IP release
-
-### Phase 4 â€” Safe Portal Intake
-
-Implemented:
-
-- Portal pending intake client
-- Portal application mapping
-- capacity calculation before destructive intake
-- intake reservation tracking
-- duplicate application protection
-- assigned IP propagation through `Server-Name`
-- fail-closed Portal readiness
-- non-enumerable memory-only execution handoff
-
-Sensitive Portal execution input is not persisted.
-
-### Phase 5 â€” Per-Job Session / Client Isolation
-
-Implemented:
-
-- per-job session manager
-- isolated CookieJar
-- isolated dispatcher
-- allocation-bound HTTP client
-- same-job session reuse
-- no direct-network fallback
-- blocked unsafe workflow headers
-- closed-session protection
-
-Sessions and cookies are intentionally memory-only.
-
-### Phase 6 â€” OTP HTML Table Integration
-
-Implemented:
-
-- OTP HTML table client
-- header-based table parsing
-- Bangladesh phone normalization
-- OTP baseline capture
-- exact-phone matching
-- timeout handling
-- per-job OTP isolation
-- anti-bot/manual-challenge detection
-- same-job HTTP client reuse
-
-OTP values are not logged or persisted as durable recovery data.
-
-### Phase 7 â€” Safe JSON Workflow Engine
-
-Implemented:
-
-- validated JSON workflow definitions
-- bounded workflow step count
-- safe template resolution
-- no `eval`
-- prototype-access protection
-- relative target routes only
-- target HTTP execution
-- OTP workflow hooks
-- manual-challenge propagation
-- fail-closed workflow validation
-
-### Phase 8 â€” Portal PDF Document Pipeline
-
-Implemented:
-
-- Portal PDF download
-- allowlisted source origins
-- same-job HTTP client reuse
-- PDF Content-Type validation
-- PDF signature validation
-- bounded document count
-- per-file size limit
-- total size limit
-- duplicate PDF protection
-- memory-only document buffers
-- multipart upload
-- anti-bot/manual-challenge propagation
-- no temporary PDF files on disk
-
-### Phase 9 â€” Final Result Capture / Idempotent Finalization
-
-Implemented:
-
-- durable final-result ledger
-- deterministic idempotency keys
-- safe result normalization
-- sensitive-field rejection
-- binary/PDF payload rejection
-- duplicate-send protection
-- durable delivery state
-- uncertain-delivery protection
-- terminal transition only after verified acknowledgement
-- terminal IP release
-- failure finalization
-
-Unverified remote result replay is never performed blindly.
-
-### Phase 10 â€” Read-Only Operational Dashboard API
-
-Implemented:
-
-- health endpoint
-- overview endpoint
-- job list/detail
-- proxy status
-- live allocation status
-- capacity status
-- readiness status
-- sensitive-field redaction
-- bounded operational errors
-- loopback-only binding
-- GET-only API
-- no mutation endpoints
-
-The dashboard remains strictly read-only.
-
-### Phase 11 â€” Restart Recovery + Graceful Shutdown
-
-Implemented:
-
-- durable recovery metadata
-- interrupted job classification
-- bounded recovery decisions
-- same-IP reservation preservation
-- no automatic manual-challenge resume
-- no blind document-upload replay
-- stale final-result delivery protection
-- graceful intake shutdown
-- workflow abort propagation
-- bounded shutdown wait
-- session cleanup
-- dispatcher cleanup
-- terminal-only IP release preservation
-
-Sessions, cookies, Portal credentials, and execution input are not restart-recoverable.
-
-### Phase 12 â€” Guarded Portal Intake Runtime
-
-Implemented:
-
-- sequential Portal polling loop
-- no overlapping destructive intake cycles
-- configurable polling interval
-- intake disabled by default
-- no blind destructive intake retry
-- graceful stop behavior
-- active-cycle wait
-- safe downstream cycle callback handling
-
-### Phase 13 â€” Intake-to-Workflow Runtime Execution
-
-Implemented:
-
-- intake execution handoff
-- per-job workflow execution worker
-- same allocation/IP execution
-- same session across target, OTP, and document work
-- workflow client construction
-- document service runtime integration
-- execution/finalization separation
-- memory-only sensitive execution input
-
-No replacement IP is acquired during workflow execution.
-
-### Phase 14 â€” Bounded Runtime Workflow Retry
-
-Implemented:
-
-- explicit retry classification
-- durable retry counter
-- bounded retry limit
-- bounded retry delays
-- same-IP retry reservation
-- `RUNNING -> RETRY_PENDING -> RUNNING`
-- manual challenge excluded from automatic retry
-- shutdown excluded from retry budget
-- unknown errors fail closed
-- final-result delivery kept outside workflow retry boundary
-- retry exhaustion converted to explicit terminal execution failure
-
-Default retry limit:
-
-- maximum retries: `3`
-- retry delays: `1000 ms`, `5000 ms`, `15000 ms`
-
-### Phase 15 â€” Safe Manual Challenge Resume Lifecycle
-
-Implemented:
-
-- explicit `WAITING_FOR_MANUAL_CHALLENGE -> RUNNING` resume path
-- no automatic challenge resume
-- same-process resume only
-- original memory-only JobContext required
-- original session required
-- same IP/allocation required
-- no replacement IP
-- no new session creation during manual resume
-- restart fails closed when in-memory context is unavailable
-- manual challenge does not consume retry budget
-- repeated challenge remains manual
-- retryable error after explicit resume may enter normal bounded retry
-- completed workflow steps are not replayed
-- completed HTTP/OTP/document-prepare steps are skipped
-- partially completed document uploads are reused
-- non-contiguous resume state fails closed
-- same-job concurrent execution protection
-- manual resume participates in graceful shutdown
-- finalization remains outside workflow retry boundary
-- dashboard remains read-only
-- no external mutation/control endpoint has been invented
-
-### Phase 16 â€” Fail-Closed Workflow Runtime Gate
-
-Implemented:
-
-- destructive Portal intake requires workflow runtime activation
-- destructive Portal intake requires an enabled workflow definition
-- destructive Portal intake requires a configured Portal final-result contract
-- runtime gate is checked before destructive intake activation
-- default startup remains non-destructive
-- missing verified external contracts fail closed
-- no Portal endpoint or acknowledgement semantics are invented
-- workflow runtime and workflow-definition activation remain explicit
-- dashboard remains read-only
-- existing workflow and finalization safety boundaries are preserved
-
-### Phase 17 â€” Safe Final-Result Restart Recovery
-
-Implemented:
-
-- `FinalResultService.resumeDelivery(jobId)`
-- durable `PENDING` final results can resume without reconstructing the result payload
-- `UNCERTAIN` delivery cannot replay without verified remote idempotency
-- `PENDING` records with previous `UNCERTAIN` delivery certainty fail closed without verified remote idempotency
-- stale `IN_FLIGHT` recovery remains `UNCERTAIN`
-- final-result recovery remains outside the workflow retry boundary
-- workflow steps are never replayed because of result-delivery recovery
-- workflow retry budget is not consumed by final-result recovery
-- same live IP is required while final-result delivery is pending
-- IP releases only after verified delivery and terminal transition
-- `FinalResultRecoveryRunner`
-- restart recovery classification is separated from result-delivery orchestration
-- unconfigured Portal result contract safely skips recovery delivery
-- one result-delivery recovery failure does not stop processing other recovery records
-- bootstrap reports Phase 17
-- default configuration remains fail-closed
-
-New Phase 17 files:
-
-- `src/runtime/final-result-recovery-runner.js`
-- `tests/final-result-recovery-runner.test.js`
-- `tests/final-result-recovery.test.js`
-
-Modified Phase 17 files:
-
-- `src/results/final-result-service.js`
-- `src/index.js`
-- `tests/final-result-service.test.js`
-- `package.json`
-
-
-### Phase 18 - Verified Portal Runtime Contract Integration
-
-Implemented:
-
-- verified Portal health contract integration
-- authenticated Portal readiness validation through:
-  - `GET /api/novaflow/v1/ping`
-- verified Portal pending intake contract boundary:
-  - `GET /api/application/pending`
-- static Portal worker identity support through `Server-Name`
-- separation between Portal worker identity and per-job proxy/IP allocation
-- verified Portal final-result HTTP contract:
-  - `POST /api/application/{application}/status`
-- numeric Portal Application ID enforcement for final-result delivery
-- environment-only Portal API token usage
-- minimum safe final-result payload mapping
-- strong acknowledgement validation before terminal transition
-- explicit remote idempotent replay capability:
-  - `false`
-- conservative delivery certainty handling
-- preservation of existing final-result restart recovery boundaries
-- no workflow replay caused by final-result delivery recovery
-- no workflow retry budget consumption from final-result delivery recovery
-
-Phase 18 safety boundaries:
-
-- Portal final-result contract remains explicitly opt-in
-- default runtime remains non-destructive
-- no OTP forwarding
-- no password/token/cookie forwarding
-- no raw workflow payload forwarding
-- no PDF binary forwarding
-- no invented remote idempotency semantics
-- no trusted manual-challenge control plane integration
-
-New Phase 18 files:
-
-- `src/portal/portal-result-http-contract.js`
-- `tests/portal-result-http-contract.test.js`
-
-Modified Phase 18 files:
-
-- `config/app.json`
-- `package.json`
-- `src/config/schema.js`
-- `src/config/loader.js`
-- `src/index.js`
-- `src/portal/portal-client.js`
-- `src/portal/portal-intake-service.js`
-- `tests/portal-client.test.js`
-- `tests/portal-intake-service.test.js`
-- `tests/portal-intake-execution-handoff.test.js`
-
-### Phase 19 - IVAC Workflow Policy Layer
-
-Implemented:
-
-- explicit IVAC workflow policy validation
-- allowlisted workflow step types:
-  - `http`
-  - `otp.prepare`
-  - `otp.wait`
-  - `documents.prepare`
-  - `documents.upload`
-- unsupported workflow step types fail closed
-- forbidden automation patterns fail closed
-- workflow loader applies IVAC policy validation
-- workflow capabilities expose bounded safety metadata
-- automatic challenge bypass remains disabled
-- credential, OTP, and cookie persistence remain disabled
-
-### Phase 20 - IVAC Target Contract Boundary
-
-Implemented:
-
-- explicit IVAC target contract model
-- unverified contract defaults fail closed
-- verified endpoint metadata normalization
-- relative endpoint-path validation
-- endpoint method normalization
-- bounded target-contract operational summary
-- no target endpoint is assumed verified by default
-
-### Phase 21 - IVAC Target Contract Metadata Hardening
-
-Implemented:
-
-- target contract objects are frozen
-- endpoint collections are frozen
-- contract metadata cannot be silently mutated after construction
-- IVAC target contract source is included in project syntax checks
-- unverified contract behavior remains fail closed
-
-### Phase 22 - IVAC Target Contract Runtime Enforcement
-
-Implemented:
-
-- IVAC target contract is enforced at the workflow runtime boundary
-- target HTTP execution receives verified contract metadata
-- job workflow client construction carries the target contract
-- job workflow executor carries the target contract
-- target requests remain bound to the existing per-job HTTP client
-- absolute external target routes remain blocked
-- unsafe workflow headers remain blocked
-- anti-bot or human-verification responses still require manual handling
-
-### Phase 23 - Workflow Readiness Inspection
-
-Implemented:
-
-- `inspectWorkflowReadiness()`
-- workflow enabled-state inspection
-- bounded workflow step count reporting
-- normalized workflow step-type reporting
-- execution-readiness reporting
-- explicit readiness safety boundaries:
-  - schema validation
-  - IVAC policy validation
-  - target contract requirement
-  - no automatic challenge bypass
-  - no credential persistence
-  - no OTP persistence
-  - no cookie persistence
-
-### Phase 24 - Runtime Execution Status Dashboard Bridge
-
-Implemented:
-
-- `ExecutionWorker.getStatus()` is bridged into the operational dashboard
-- runtime-status provider wiring in application bootstrap
-- `OperationalService.getRuntimeStatus()`
-- read-only `GET /api/dashboard/runtime`
-- runtime endpoint rejects non-GET requests
-- final dashboard response redaction remains active
-- runtime status exposes execution observability without adding mutation control
-
-### Phase 25 - Runtime Status Contract Hardening
-
-Implemented:
-
-- strict runtime-status allowlist
-- allowed runtime counters:
-  - `inFlight`
-  - `memoryContexts`
-- counters must be non-negative safe integers
-- zero counters are valid
-- malformed runtime-provider output fails closed
-- unexpected provider fields are discarded
-- sensitive provider fields are never exposed through runtime status
-- provider errors continue through bounded operational error sanitization
-
-### Phase 26 - Project Checkpoint / Bootstrap Status Synchronization
-
-Implemented:
-
-- bootstrap phase marker synchronized to Phase 26
-- returned bootstrap phase synchronized to Phase 26
-- project status documentation synchronized through Phase 26
-- completed Phase 19-25 work recorded in repository documentation
-- current validation count synchronized to 345 tests
-- existing runtime behavior and safety boundaries otherwise unchanged
-
-## Current Runtime Safety Model
-
-### One IP = One Active Job
-
-A live IP allocation belongs to one active job.
-
-Retries, same-process manual resume, and pending final-result delivery must retain the same allocation.
-
-A replacement IP is not silently acquired.
-
-### Terminal-Only IP Release
-
-Non-terminal conditions do not release the assigned IP.
-
-This includes:
-
-- retryable failures
-- manual challenge
-- graceful shutdown
-- interrupted execution
-- pending final-result delivery
-- uncertain final-result delivery
-
-IP release happens only after terminal lifecycle handling.
-
-### Manual Challenges
-
-Anti-bot or human-verification responses are never bypassed.
-
-They produce:
-
-`MANUAL_CHALLENGE_REQUIRED`
-
-Automatic retry is disabled for this condition.
-
-Explicit resume requires the original live in-memory execution context, session, and IP.
-
-Manual challenge resume is not restart-recoverable.
-
-### Restart Boundary
-
-Durable across restart:
-
-- job state
-- retry count
-- IP allocation metadata
-- recovery metadata
-- final-result ledger
-- final-result delivery state
-
-Not durable across restart:
-
-- Portal password
-- sensitive execution input
-- session cookies
-- HTTP session state
-- OTP state
-- PDF buffers
-- same-process workflow response cache
-- manual-challenge execution context
-
-The runtime does not claim these memory-only resources can be reconstructed.
-
-### Workflow Resume
-
-Within the same process, completed workflow steps are recorded in the per-job memory context.
-
-On retry or explicit manual resume:
-
-- completed prefix steps are skipped
-- first incomplete step is attempted
-- inconsistent/non-contiguous completion state fails closed
-- completed document uploads may be reused through per-document upload markers
-
-No durable restart workflow replay guarantee is claimed.
-
-### Final-Result Recovery
-
-Final-result delivery is outside workflow execution and workflow retry.
-
-Restart recovery may resume only from the existing durable final-result ledger.
-
-Properties:
-
-- result payload is not reconstructed from workflow execution input
-- workflow steps are not replayed
-- workflow retry budget is not consumed
-- same live IP is required
-- `PENDING` delivery may resume when replay is safe
-- stale `IN_FLIGHT` delivery becomes `UNCERTAIN`
-- `UNCERTAIN` delivery is never blindly replayed
-- replay after uncertain delivery requires explicitly verified remote idempotency
-- terminal job transition requires verified acknowledgement
-- IP remains allocated until terminal lifecycle completion
-
-## Safe Default Configuration
-
-By default:
-
-- Portal intake is disabled
-- workflow runtime execution is disabled
-- workflow definition is disabled
-- dashboard is disabled
-- Portal final-result contract is unconfigured
-- Portal health route is unconfigured
-- proxy configuration may be absent
-- no destructive Portal polling occurs
-
-Destructive intake cannot be enabled unless:
-
-1. workflow runtime execution is enabled
-2. the workflow definition is enabled
-3. the verified Portal final-result contract is configured
-
-No final-result endpoint, payload mapping, acknowledgement semantics, or remote idempotency behavior is assumed by default.
-
-## Portal Final-Result Contract Boundary
-
-`PortalResultClient` intentionally accepts an injected verified contract instead of inventing Portal behavior.
-
-Without a configured contract:
-
-- `isConfigured()` is false
-- delivery fails closed
-- restart delivery is skipped safely
-- destructive Portal intake cannot activate
-
-A future verified contract must explicitly define:
-
-- how the result is sent
-- what constitutes an accepted acknowledgement
-- whether uncertain delivery may be replayed idempotently
-
-The repository does not currently define those external Portal semantics.
-
-## Operational Dashboard
-
-The operational dashboard is designed for observability only.
-
-Properties:
-
-- read-only
-- loopback-only
-- no mutation routes
-- redacted output
-- bounded error output
-
-Manual challenge resume is not exposed through the dashboard.
-
-No trusted external mutation/control-plane contract is currently configured.
-
-## Sensitive Data Rules
-
-The application must not log or durably persist:
-
-- passwords
-- secrets
-- API tokens
-- authorization headers
-- cookies
-- OTP values
-- raw PDF binary
-- full sensitive Portal payloads
-
-Sensitive runtime execution input remains memory-only.
-
-## Validation
-
-Current Phase 26 verification:
-
-- `npm run check` - passed
-- `npm test` - passed
-- tests: `345`
-- passed: `345`
-- failed: `0`
-- `npm start` - passed
-- bootstrap reports Phase `26`
-- `git diff --check` - clean
-- runtime-status strict allowlist tests - passed
-- invalid runtime counter fail-closed tests - passed
-- workflow and target-contract safety tests - passed
-- secret/runtime safety boundaries remain enforced
-
-Latest functional checkpoint before Phase 26 synchronization:
-
-`bbc03e1 feat: harden runtime status contract`
-
-## Current External Integration Gates
-
-The verified Portal runtime contract defines the currently known Portal health, pending-intake, and final-result status boundaries.
-
-The following boundaries remain explicitly gated:
-
-- destructive Portal intake remains opt-in
-- workflow runtime execution remains opt-in
-- the workflow definition remains disabled by default
-- IVAC target workflow endpoints require explicit verified target-contract metadata
-- unverified target endpoints fail closed
-- trusted external manual-challenge control is not configured
-- automatic manual-challenge resume is disabled
-- manual-challenge restart recovery is unavailable because the required session/context is memory-only
-- remote final-result replay after uncertain delivery is not assumed idempotent
-
-No runtime component may invent missing target endpoints, bypass human verification, or reconstruct memory-only credentials, cookies, OTP state, PDF buffers, or workflow execution context after restart.
+1. Foundation
+2. SQLite / Durable Job State
+3. Proxy / IP Allocation
+4. Safe Portal Intake
+5. Per-job Session / Client Isolation
+6. OTP HTML Table Integration
+7. Safe JSON Workflow Engine
+8. Portal PDF Document Pipeline
+9. Final Result Capture / Idempotent Finalization
+10. Read-Only Operational Dashboard API
+11. Restart Recovery + Bounded Retry + Graceful Shutdown
+12. Guarded Portal Intake Runtime
+13. Intake-to-Workflow Runtime Execution
+14. Bounded Runtime Workflow Retry
+15. Safe Manual Challenge Resume Lifecycle
+16. Fail-Closed Workflow Runtime Gate
+17. Safe Final-Result Restart Recovery
+18. Verified Portal Runtime Contract Integration
+19. IVAC Workflow Policy Layer
+20. IVAC Target Contract Boundary
+21. IVAC Target Contract Metadata Hardening
+22. IVAC Target Contract Runtime Enforcement
+23. Workflow Readiness Inspection
+24. Runtime Execution Status Dashboard Bridge
+25. Runtime Status Contract Hardening
+26. Project Checkpoint / Bootstrap Status Synchronization
+27. Target Contract Bootstrap Wiring
+28. Verified IVAC Target Contract Route / Method Hardening
+29. Actual IVAC Workflow from Verified Contract Only
+30. Runtime Readiness Gates
+31. Proxy Readiness
+32. Secrets / Environment Readiness
+33. Controlled Activation Profile
+34. Non-destructive E2E
+35. Manual Challenge Operations
+36. Observability
+37. Restart / Crash Recovery Matrix
+38. Security Audit + Runtime Safety Hardening
+39. Release Validation
+40. README / Runbook / Final Release Checkpoint
+
+## Architecture Overview
+
+The runtime is organized around strict job isolation and bounded state transitions.
+
+Primary components:
+
+- `src/jobs/` — durable job lifecycle and job context
+- `src/db/` — SQLite database initialization and migrations
+- `src/network/` — proxy loading, health state, IP allocation, dispatcher isolation, readiness
+- `src/session/` — per-job cookies, dispatcher/session ownership, HTTP client
+- `src/portal/` — Portal readiness, pending intake, mapping, final-result contract
+- `src/otp/` — OTP table retrieval, parsing, matching, timeout behavior
+- `src/documents/` — bounded PDF download, validation, memory-only handling, multipart upload
+- `src/workflow/` — schema validation, policy, safe templates, target contract enforcement, auth workflow
+- `src/contracts/` — verified IVAC target contract definitions
+- `src/runtime/` — execution, retry, activation, readiness, observability, challenge operations, shutdown
+- `src/recovery/` — durable restart classification and conservative recovery behavior
+- `src/results/` — durable final-result ledger and delivery lifecycle
+- `src/dashboard/` — read-only loopback operational API
+
+## Safety Model
+
+Normal startup does not activate destructive Portal intake.
+
+Default behavior:
+
+- activation profile: `safe`
+- Portal intake: disabled
+- workflow runtime: disabled
+- workflow definition: disabled
+- Portal final-result delivery: disabled
+- operational dashboard: disabled
+- Portal API token: not required
+- proxy configuration: may be absent
+- human-verification bypass: disabled
+- automatic manual-challenge resume: disabled
+
+Launching the application in this state must not consume pending Portal work.
+
+Activation must pass independent readiness boundaries. Destructive intake is blocked if required runtime, workflow, target-contract, result-delivery, secret, activation, or proxy requirements are not satisfied.
+
+Unknown execution failures are not automatically treated as retryable. Uncertain non-idempotent mutations are not blindly replayed.
 
 ## Requirements
 
+Required tooling:
+
 - Windows
 - PowerShell
-- Node.js 20+
-- npm
 - Git
+- Node.js `>=22.0.0`
+- npm compatible with the installed Node.js release
 
-Check versions:
+Validated Phase 39 environment:
+
+- Node.js `v24.18.0`
+- npm `12.0.2`
+
+Check local versions:
 
 ```powershell
 node --version
 npm --version
 git --version
 ```
+
+`better-sqlite3@13.0.3` requires Node.js `>=22`.
+
+The project declares:
+
+```json
+{
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
+```
+
+## Installation
+
+```powershell
+git clone https://github.com/arnobai70-del/IVAC-VS-Code-.git
+cd IVAC-VS-Code-
+npm ci
+```
+
+The repository intentionally denies the implicit `better-sqlite3` install script:
+
+```json
+{
+  "allowScripts": {
+    "better-sqlite3": false
+  }
+}
+```
+
+Review install-script policy:
+
+```powershell
+npm install-scripts ls
+```
+
+Expected release state:
+
+```text
+No packages with unreviewed install scripts.
+```
+
+## Environment Configuration
+
+Local secrets and operator overrides are loaded from `.env.local`.
+
+Create it from `.env.example`:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
+Supported environment values:
+
+- `PORTAL_API_ACCESS_TOKEN` — Portal API credential where the verified Portal contract requires authentication.
+- `ACTIVATION_PROFILE` — `safe` or `controlled`.
+- `APP_ENV` — optional application environment override.
+- `LOG_LEVEL` — optional structured logger level override.
+
+Safe startup does not require the Portal API token while intake remains disabled.
+
+Never commit `.env.local`.
+
+## Static Configuration
+
+Primary configuration:
+
+`config/app.json`
+
+Major groups:
+
+- `app`
+- `runtime`
+- `database`
+- `network`
+- `portal`
+- `otp`
+- `documents`
+- `target`
+- `workflow`
+- `logging`
+
+Dashboard configuration is schema-defaulted when omitted.
+
+Repository runtime defaults include:
+
+```json
+{
+  "runtime": {
+    "concurrency": 2,
+    "jobsPerCycle": 2,
+    "requestDelayMs": 250,
+    "intakeEnabled": false,
+    "intakePollIntervalMs": 3000
+  }
+}
+```
+
+`activationProfile` defaults to `safe`.
+
+## Workflow Configuration
+
+Workflow definition:
+
+`config/workflow.json`
+
+The workflow is intentionally disabled by default.
+
+Current bounded auth workflow contains four steps:
+
+1. `prepare_signin_otp` — `otp.prepare`
+2. `sign_in` — `POST /auth/sign-in-v2`
+3. `wait_signin_otp` — `otp.wait`
+4. `verify_signin_otp` — `POST /otp/verifySigninOtp`
+
+Supported policy step types:
+
+- `http`
+- `otp.prepare`
+- `otp.wait`
+- `documents.prepare`
+- `documents.upload`
+
+Workflow templates do not use `eval` or `new Function`. Unsafe prototype access is rejected. Absolute external target routes are rejected.
+
+## IVAC Target Contract
+
+The current verified target contract authorizes only:
+
+```text
+POST /auth/sign-in-v2
+POST /otp/verifySigninOtp
+```
+
+Method and path must both match the verified contract.
+
+A verified path does not authorize another HTTP method. Dynamic or unverified target routes fail closed.
+
+The repository does not authorize payment or application-submission routes.
+
+## Portal Runtime Contract
+
+The Portal integration is separate from the IVAC target contract.
+
+Current configured Portal boundaries include:
+
+- authenticated health: `GET /api/novaflow/v1/ping`
+- pending application intake: `GET /api/application/pending`
+- final-result status: `POST /api/application/{application}/status`
+
+Portal service URLs used by production-facing configuration must remain HTTPS and must not contain embedded credentials.
+
+Configured Portal paths must remain same-origin and must not use unsafe network-path references.
+
+Portal uses a configured static `Server-Name` worker identity. This worker identity is separate from the per-job reserved proxy/IP allocation.
+
+## OTP Integration
+
+OTP integration operates through an HTML table source.
+
+Current behavior includes:
+
+- same per-job HTTP client
+- baseline capture before waiting
+- exact normalized phone matching
+- header-based table parsing
+- bounded polling timeout
+- bounded HTML response size
+- bounded row count
+- OTP isolation to the requesting job
+- manual challenge detection
+
+OTP values must not be logged or stored in durable recovery metadata.
+
+Repository defaults:
+
+```text
+pollIntervalMs: 3000
+timeoutMs: 120000
+maxRows: 5000
+```
+
+## PDF Document Pipeline
+
+Safety boundaries include:
+
+- source-origin allowlist
+- same-job HTTP client
+- no direct network fallback
+- PDF Content-Type validation
+- PDF signature validation
+- bounded document count
+- bounded individual file size
+- bounded total size
+- duplicate content rejection
+- memory-only PDF buffers
+- multipart upload
+- no temporary PDF files on disk
+- manual challenge propagation
+- no blind document-upload replay after uncertain restart state
+
+Current limits:
+
+```text
+maxCount: 8
+maxFileBytes: 10485760
+maxTotalBytes: 31457280
+```
+
+## Proxy Configuration
+
+Private proxy configuration path:
+
+`config/proxies.json`
+
+This file is gitignored because it may contain proxy credentials.
+
+Document format:
+
+```json
+{
+  "version": 1,
+  "proxies": [
+    {
+      "id": "proxy-1",
+      "ip": "203.0.113.10",
+      "port": 8080,
+      "protocol": "http",
+      "enabled": true,
+      "username": "optional-user",
+      "password": "optional-password",
+      "label": "optional-label"
+    }
+  ]
+}
+```
+
+Supported protocols:
+
+- `http`
+- `https`
+
+Rules:
+
+- proxy IDs must be unique
+- IP/port endpoints must be unique
+- username and password must either both exist or both be omitted
+- disabled proxies are not usable capacity
+- credentials must never be exposed through dashboard responses
+
+Do not commit real proxy credentials.
+
+## Proxy Readiness
+
+Destructive intake requires:
+
+- proxy configuration source exists
+- health-check URL is configured
+- at least one proxy is enabled
+- at least one enabled proxy is healthy and available
+
+Fail-closed blockers include:
+
+```text
+PROXY_CONFIG_NOT_FOUND
+PROXY_HEALTH_CHECK_NOT_CONFIGURED
+NO_ENABLED_PROXIES
+NO_HEALTHY_PROXY_CAPACITY
+PROXY_PROBE_ERROR
+```
+
+Safe startup may report blocked proxy readiness without failing while destructive intake is disabled.
+
+## One Active Job = One Reserved IP
+
+A live job owns one reserved allocation.
+
+Important rules:
+
+- one active job cannot share another active job's allocation
+- retry must preserve the same allocation
+- manual challenge state must preserve the same allocation
+- pending final-result delivery must preserve the same allocation
+- replacement IP acquisition is not automatic
+- allocation identity changes fail closed
+- IP is released only after terminal lifecycle completion
+
+## Per-Job Session Isolation
+
+Each active job receives isolated network state:
+
+- dedicated JobContext
+- dedicated CookieJar
+- allocation-bound dispatcher
+- allocation-bound JobHttpClient
+- isolated workflow state
+
+Target, OTP, and document operations for a job use that same per-job client/session.
+
+Cross-job cookie or session sharing is prohibited. Sessions and cookies are memory-only.
+
+## Retry Behavior
+
+Runtime retry is bounded.
+
+Default maximum retries: `3`
+
+Default retry delays:
+
+```text
+1000 ms
+5000 ms
+15000 ms
+```
+
+Only explicitly retryable failures enter the retry path.
+
+Retry properties:
+
+- same job
+- same execution input while process memory remains available
+- same IP/allocation
+- same session/context
+- durable retry count
+- bounded delay
+- no manual-challenge auto retry
+- no graceful-shutdown retry
+- unknown errors fail closed
+
+Retry exhaustion produces an explicit terminal execution failure path rather than an unbounded retry loop.
+
+## Manual Challenge Contract
+
+Human verification is never bypassed.
+
+Human-verification or anti-bot challenge detection surfaces:
+
+`MANUAL_CHALLENGE_REQUIRED`
+
+Rules:
+
+- automatic resume: false
+- explicit resume only
+- same process required
+- original JobContext required
+- original session required
+- same IP required
+- replacement IP forbidden
+- restart resume unsupported
+- challenge solution is not accepted by the operation boundary
+- no dashboard mutation endpoint
+- repeated challenge remains non-terminal
+- retry budget is not consumed merely because a manual challenge occurred
+
+There is no CAPTCHA, Cloudflare, Turnstile, reCAPTCHA, hCaptcha, or other human-verification bypass implementation.
+
+## Final Result Lifecycle
+
+Final-result handling uses a durable ledger.
+
+Properties include:
+
+- deterministic result normalization
+- deterministic idempotency key
+- sensitive-field rejection
+- binary/PDF payload rejection
+- local duplicate-send protection
+- delivery attempt tracking
+- terminal transition only after verified acknowledgement
+- same-IP preservation while result delivery remains pending
+- final-result delivery outside workflow retry boundary
+
+Durable delivery states include:
+
+```text
+PENDING
+IN_FLIGHT
+UNCERTAIN
+DELIVERED
+```
+
+Uncertain delivery is not blindly replayed.
+
+The current Portal result contract declares verified remote idempotent replay as unsupported.
+
+## Restart and Crash Recovery
+
+Recovery is conservative.
+
+- Pre-execution states may remain recoverable without consuming retry budget.
+- Interrupted `RUNNING` / `WAITING_FOR_OTP` may schedule bounded retry only when the same allocation identity remains recoverable.
+- Existing `RETRY_PENDING` budget is preserved.
+- `WAITING_FOR_MANUAL_CHALLENGE` never automatically resumes after restart.
+- Document upload crash points are not blindly replayed without verified idempotency.
+- Stale final-result `IN_FLIGHT` becomes conservative `UNCERTAIN`.
+- `UNCERTAIN` final result is not blindly replayed.
+- `DELIVERED` may continue terminalization without re-sending the result.
+
+## Durable vs Memory-Only State
+
+Durable operational state includes:
+
+- job lifecycle state
+- retry count
+- IP allocation metadata
+- intake reservations / claims
+- recovery metadata
+- final-result ledger
+- final-result delivery state
+
+Intentionally memory-only state includes:
+
+- sensitive execution input
+- Portal password
+- session cookies
+- HTTP session state
+- JobContext runtime secrets
+- OTP state/value
+- PDF buffers
+- same-process workflow response cache
+- manual challenge execution context
+
+A restart therefore cannot reconstruct a manual challenge session or other intentionally memory-only execution state.
+
+## Graceful Shutdown
+
+Graceful shutdown coordinates:
+
+- stop accepting new intake
+- stop intake polling
+- abort active workflow execution
+- abort active manual resume
+- abort retry wait
+- wait within a bounded shutdown deadline
+- clean session/dispatcher resources
+
+Non-terminal IP allocations are not released merely because the process is shutting down.
+
+## Observability
+
+Runtime observability exposes bounded operational state only and is designed to avoid raw workflow payloads, credentials, OTP values, cookies, proxy credentials, or arbitrary provider objects.
+
+Observability timestamps and safety flags are validated before exposure.
+
+## Read-Only Operational Dashboard
+
+The dashboard is disabled by default.
+
+Schema defaults:
+
+```json
+{
+  "dashboard": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 8787
+  }
+}
+```
+
+Allowed bind hosts:
+
+```text
+127.0.0.1
+::1
+localhost
+```
+
+Available read-only routes:
+
+```text
+GET /health
+GET /api/dashboard/health
+GET /api/dashboard/overview
+GET /api/dashboard/jobs
+GET /api/dashboard/jobs/{jobId}
+GET /api/dashboard/proxies
+GET /api/dashboard/allocations
+GET /api/dashboard/capacity
+GET /api/dashboard/runtime
+GET /api/dashboard/observability
+GET /api/dashboard/readiness
+```
+
+The dashboard intentionally has no mutation endpoint and no manual-challenge resume endpoint.
+
+Responses pass through operational redaction.
+
+## Activation Profiles
+
+### `safe`
+
+Default profile. It cannot authorize destructive intake.
+
+Recommended for development, tests, verification, release checks, and non-destructive startup.
+
+### `controlled`
+
+Explicit operator-selected profile.
+
+Selecting it only arms the activation profile. It does not automatically enable workflow runtime, workflow definition, Portal result delivery, Portal intake, proxy readiness, or secret readiness.
+
+All applicable readiness gates must still pass.
+
+## Production / Controlled Activation Prerequisites
+
+Do not activate destructive intake until all required conditions are intentionally satisfied.
+
+At minimum:
+
+1. Node.js satisfies `>=22.0.0`.
+2. repository validation is green.
+3. `ACTIVATION_PROFILE=controlled`.
+4. runtime workflow execution is explicitly enabled.
+5. `config/workflow.json` is intentionally enabled.
+6. workflow definition passes schema and IVAC policy validation.
+7. verified target contract matches every workflow HTTP method/path.
+8. only verified IVAC target routes are used.
+9. Portal final-result delivery is explicitly enabled.
+10. Portal API access token is configured.
+11. Portal worker `Server-Name` is configured.
+12. Portal service configuration is valid and same-origin-safe.
+13. proxy configuration exists.
+14. proxy health-check URL is configured.
+15. at least one enabled proxy is healthy and available.
+16. destructive intake is explicitly enabled.
+17. no readiness gate reports a blocker.
+
+Controlled activation remains an operator action.
+
+Do not turn on every switch merely to make readiness appear green.
+
+## Safe Startup
+
+Safe startup command:
+
+```powershell
+npm start
+```
+
+With repository defaults, expected behavior includes:
+
+- bootstrap succeeds
+- activation profile is `safe`
+- intake is disabled
+- workflow runtime is disabled
+- workflow definition is disabled
+- Portal final-result contract is disabled
+- dashboard is disabled
+- missing production token does not break safe startup
+- missing proxy configuration remains a readiness blocker rather than triggering destructive behavior
+
+## Validation Commands
+
+Normal release validation:
+
+```powershell
+npm run check
+npm test
+npm audit --omit=dev
+npm install-scripts ls
+npm start
+git diff --check
+git status --short
+```
+
+Phase 39 validated:
+
+```text
+tests: 526
+pass: 526
+fail: 0
+production vulnerabilities: 0
+unreviewed install scripts: 0
+```
+
+Native SQLite smoke test:
+
+```powershell
+node -e "const Database=require('better-sqlite3'); const db=new Database(':memory:'); db.exec('CREATE TABLE t(id INTEGER PRIMARY KEY, value TEXT)'); db.prepare('INSERT INTO t(value) VALUES (?)').run('ok'); console.log(db.prepare('SELECT value FROM t').get()); db.close();"
+```
+
+## Security Boundaries
+
+The project must not add or enable:
+
+- CAPTCHA bypass
+- Cloudflare bypass
+- Turnstile bypass
+- reCAPTCHA bypass
+- hCaptcha bypass
+- other anti-bot / human-verification bypass
+- credential stealing
+- cookie stealing
+- token logging
+- OTP logging
+- fake production endpoints
+- unverified IVAC target endpoints
+- arbitrary IP switching
+- cross-job session sharing
+- blind destructive retries
+- unbounded retries
+- blind replay after uncertain mutation
+
+Production-facing configured service URLs are required to use HTTPS where enforced by the application schema.
+
+Embedded URL credentials are rejected.
+
+Portal routes are constrained to the configured origin.
+
+Outbound Portal result header control characters are rejected.
+
+## Sensitive Files and Git Hygiene
+
+The repository ignores:
+
+- `node_modules/`
+- `.env`
+- `.env.local`
+- `.env.*.local`
+- `config/proxies.json`
+- runtime SQLite files
+- logs
+- results
+- temporary directories
+- coverage output
+
+The public template `.env.example` remains tracked.
+
+Never force-add ignored secrets, proxy inventories, databases, or runtime output.
+
+## Troubleshooting Runbook
+
+### `INTAKE_DISABLED`
+
+Expected during safe startup.
+
+### `WORKFLOW_RUNTIME_DISABLED`
+
+Workflow runtime activation is off. Expected by default.
+
+### `WORKFLOW_DEFINITION_DISABLED`
+
+`config/workflow.json` remains disabled. Expected by default.
+
+### `PORTAL_RESULT_NOT_CONFIGURED`
+
+Verified final-result delivery is not active. Destructive intake must remain blocked.
+
+### `PORTAL_API_ACCESS_TOKEN_NOT_CONFIGURED`
+
+Production Portal credential is absent. Safe startup may still operate while intake is disabled.
+
+### `PROXY_CONFIG_NOT_FOUND`
+
+Create private proxy configuration at `config/proxies.json`. Do not commit it.
+
+### `PROXY_HEALTH_CHECK_NOT_CONFIGURED`
+
+Configure a valid network health-check URL before destructive intake.
+
+### `NO_ENABLED_PROXIES`
+
+At least one valid proxy must have `"enabled": true`.
+
+### `NO_HEALTHY_PROXY_CAPACITY`
+
+Resolve network/proxy health rather than bypassing readiness.
+
+### Manual challenge
+
+Preserve the current process, original session/context/IP, and use only the explicit same-process resume boundary.
+
+Do not restart expecting the challenge session to be reconstructable.
+
+### Final result becomes `UNCERTAIN`
+
+Do not resend blindly. The current verified Portal result contract does not declare remote idempotent replay support.
+
+### Node engine mismatch
+
+Confirm:
+
+```powershell
+node --version
+node -p "require('./package.json').engines.node"
+```
+
+Node must satisfy `>=22.0.0`.
+
+## Known Limitations
+
+The current release intentionally has the following limitations:
+
+- IVAC workflow is bounded to verified authentication only.
+- No verified payment workflow is implemented.
+- No verified IVAC application-submission workflow is implemented.
+- No automatic CAPTCHA or human-verification solving exists.
+- Manual challenge resume requires the same running process.
+- Manual challenge restart recovery is unsupported.
+- Cookies and session state are not durable.
+- Sensitive workflow execution input is not durable.
+- OTP state is not durable.
+- PDF buffers are not durable.
+- Workflow response cache is not durable.
+- Dashboard is read-only and loopback-only.
+- No trusted external manual-challenge mutation/control plane exists.
+- Remote Portal final-result idempotent replay is not verified.
+- Uncertain non-idempotent operations are deliberately not replayed blindly.
+- Phase 34 E2E validation is non-destructive and does not claim a real production IVAC mutation test.
+
+These are deliberate safety boundaries rather than features that should be silently bypassed.
+
+## Release Checklist
+
+Before a release checkpoint:
+
+```powershell
+npm run check
+npm test
+npm audit --omit=dev
+npm install-scripts ls
+npm start
+git diff --check
+git status --short
+```
+
+Before commit:
+
+```powershell
+git diff --cached --check
+git diff --cached --stat
+git diff --cached --name-only
+```
+
+After push:
+
+```powershell
+git status --short
+git rev-parse HEAD
+git rev-parse origin/master
+```
+
+Local HEAD and `origin/master` must match.
+
+## Deployment Status
+
+Production activation should occur only after the operator has supplied the required environment, proxy, Portal, target-contract, and operational prerequisites and has independently confirmed that the intended use is authorized.
