@@ -508,7 +508,7 @@ test(
 
 
 test(
-  'application bootstrap uses Phase 36 bounded observability with existing readiness gates',
+  'application bootstrap uses Phase 37 restart and crash safety with existing readiness gates',
   () => {
     const source =
       readFileSync(
@@ -794,11 +794,11 @@ test(
     );
 
     /*
-     * Bootstrap surfaces bounded readiness states and Phase 36.
+     * Bootstrap surfaces bounded readiness states and Phase 37.
      */
     assert.match(
       source,
-      /phase:\s*36/,
+      /phase:\s*37/,
     );
 
     assert.match(

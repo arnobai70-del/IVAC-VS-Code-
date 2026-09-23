@@ -1700,7 +1700,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          36,
+          37,
 
         environment:
           config.app
@@ -1884,7 +1884,7 @@ export async function main() {
 
     return {
       phase:
-        36,
+        37,
 
       readiness:
         runtimeReadiness,
