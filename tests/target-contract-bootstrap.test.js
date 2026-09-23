@@ -508,7 +508,7 @@ test(
 
 
 test(
-  'application bootstrap uses Phase 33 controlled activation with existing readiness gates',
+  'application bootstrap uses Phase 34 non-destructive E2E checkpoint with existing readiness gates',
   () => {
     const source =
       readFileSync(
@@ -716,11 +716,11 @@ test(
     );
 
     /*
-     * Bootstrap surfaces bounded readiness states and Phase 33.
+     * Bootstrap surfaces bounded readiness states and Phase 34.
      */
     assert.match(
       source,
-      /phase:\s*33/,
+      /phase:\s*34/,
     );
 
     assert.match(
