@@ -508,7 +508,7 @@ test(
 
 
 test(
-  'application bootstrap uses Phase 32 secret and proxy readiness with verified auth contract',
+  'application bootstrap uses Phase 33 controlled activation with existing readiness gates',
   () => {
     const source =
       readFileSync(
@@ -623,7 +623,7 @@ test(
     );
 
     /*
-     * Phase 32 secret/environment readiness must be evaluated before
+     * Phase 32 secret/environment readiness remains wired before
      * destructive intake can proceed.
      */
     assert.equal(
@@ -665,11 +665,67 @@ test(
     );
 
     /*
-     * Bootstrap surfaces bounded readiness state only.
+     * Phase 33 adds a separate explicit controlled activation gate.
+     */
+    assert.equal(
+      source.includes(
+        "from './runtime/activation-profile.js';",
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'inspectActivationProfile',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'assertActivationProfileForIntake',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'activationReadiness',
+      ),
+      true,
+    );
+
+    assert.match(
+      source,
+      /profile:\s*config\.runtime\s*\.activationProfile/,
+    );
+
+    assert.match(
+      source,
+      /workflowRuntimeEnabled,/,
+    );
+
+    assert.match(
+      source,
+      /portalResultEnabled:\s*config\.portal\s*\.result\s*\.enabled/,
+    );
+
+    assert.match(
+      source,
+      /readiness:\s*activationReadiness/,
+    );
+
+    /*
+     * Bootstrap surfaces bounded readiness states and Phase 33.
      */
     assert.match(
       source,
-      /phase:\s*32/,
+      /phase:\s*33/,
+    );
+
+    assert.match(
+      source,
+      /activationReadiness,/,
     );
 
     assert.match(

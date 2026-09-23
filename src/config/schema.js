@@ -9,6 +9,12 @@ const environmentSchema =
     'production',
   ]);
 
+const activationProfileSchema =
+  z.enum([
+    'safe',
+    'controlled',
+  ]);
+
 const logLevelSchema =
   z.enum([
     'trace',
@@ -113,6 +119,23 @@ const optionalEnvironmentSchema =
     },
 
     environmentSchema.optional(),
+  );
+
+const optionalActivationProfileSchema =
+  z.preprocess(
+    (value) => {
+      if (
+        typeof value === 'string'
+        && value.trim() === ''
+      ) {
+        return undefined;
+      }
+
+      return value;
+    },
+
+    activationProfileSchema
+      .optional(),
   );
 
 const optionalLogLevelSchema =
@@ -568,6 +591,23 @@ export const appConfigSchema =
             .max(60_000),
 
         /*
+         * Phase 33 activation profile.
+         *
+         * SAFE is the default and cannot authorize destructive
+         * intake. CONTROLLED is an explicit operator-selected
+         * profile evaluated by the runtime activation gate.
+         *
+         * An environment override may select CONTROLLED later;
+         * simply selecting the profile does not itself enable
+         * workflow execution or Portal intake.
+         */
+        activationProfile:
+          activationProfileSchema
+            .default(
+              'safe',
+            ),
+
+        /*
          * Destructive Portal intake must be an explicit
          * operational choice.
          *
@@ -755,6 +795,15 @@ export const environmentConfigSchema =
   z.object({
     PORTAL_API_ACCESS_TOKEN:
       optionalSecretSchema,
+
+    /*
+     * Operator-only activation selector.
+     *
+     * Blank/missing value means no override. The loader therefore
+     * preserves the safe profile injected by appConfigSchema.
+     */
+    ACTIVATION_PROFILE:
+      optionalActivationProfileSchema,
 
     APP_ENV:
       optionalEnvironmentSchema,

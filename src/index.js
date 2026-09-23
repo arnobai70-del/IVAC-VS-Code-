@@ -120,6 +120,11 @@ import {
 } from './results/final-result-store.js';
 
 import {
+  assertActivationProfileForIntake,
+  inspectActivationProfile,
+} from './runtime/activation-profile.js';
+
+import {
   ExecutionWorker,
 } from './runtime/execution-worker.js';
 
@@ -442,6 +447,54 @@ export async function main() {
       new RecoveryStore(
         database,
       );
+
+    /*
+     * Phase 33 controlled activation profile boundary.
+     *
+     * SAFE remains the default and can never authorize destructive
+     * Portal intake.
+     *
+     * CONTROLLED may be selected explicitly by the operator, but it
+     * still does not enable workflow execution, Portal final-result
+     * delivery, or intake by itself.
+     *
+     * When intake is enabled, this gate requires the CONTROLLED
+     * profile together with the workflow-runtime and Portal-result
+     * activation switches.
+     */
+    const activationReadiness =
+      inspectActivationProfile({
+        profile:
+          config.runtime
+            .activationProfile,
+
+        intakeEnabled:
+          config.runtime
+            .intakeEnabled,
+
+        workflowRuntimeEnabled,
+
+        portalResultEnabled:
+          config.portal
+            .result
+            .enabled,
+      });
+
+    assertActivationProfileForIntake({
+      intakeEnabled:
+        config.runtime
+          .intakeEnabled,
+
+      readiness:
+        activationReadiness,
+    });
+
+    logger.info(
+      {
+        activationReadiness,
+      },
+      'Controlled activation profile evaluated.',
+    );
 
     /*
      * Phase 32 secret/environment readiness boundary.
@@ -1617,7 +1670,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          32,
+          33,
 
         environment:
           config.app
@@ -1626,6 +1679,8 @@ export async function main() {
         dashboardEnabled:
           config.dashboard
             .enabled,
+
+        activationReadiness,
 
         secretReadiness,
 
@@ -1799,10 +1854,12 @@ export async function main() {
 
     return {
       phase:
-        32,
+        33,
 
       readiness:
         runtimeReadiness,
+
+      activationReadiness,
 
       secretReadiness,
 

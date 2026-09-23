@@ -220,6 +220,16 @@ export function loadConfig({
         ?? appConfig.app.environment,
     },
 
+    runtime: {
+      ...appConfig.runtime,
+
+      activationProfile:
+        environmentConfig
+          .ACTIVATION_PROFILE
+        ?? appConfig.runtime
+          .activationProfile,
+    },
+
     logging: {
       ...appConfig.logging,
 

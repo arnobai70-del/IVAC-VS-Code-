@@ -50,6 +50,12 @@ test('project app.json passes configuration validation', () => {
   );
 
   assert.equal(
+    config.runtime
+      .activationProfile,
+    'safe',
+  );
+
+  assert.equal(
     config.database.file,
     'data/ivac.sqlite3',
   );
@@ -111,6 +117,12 @@ test('workflow execution defaults to disabled fail-closed operation', () => {
   assert.equal(
     config.runtime.intakeEnabled,
     false,
+  );
+
+  assert.equal(
+    config.runtime
+      .activationProfile,
+    'safe',
   );
 });
 
@@ -258,6 +270,7 @@ test('environment overrides are loaded without exposing the token in safe summar
     environmentFile,
     [
       'PORTAL_API_ACCESS_TOKEN=test-secret-token',
+      'ACTIVATION_PROFILE=controlled',
       'APP_ENV=test',
       'LOG_LEVEL=debug',
       '',
@@ -287,6 +300,12 @@ test('environment overrides are loaded without exposing the token in safe summar
     );
 
     assert.equal(
+      config.runtime
+        .activationProfile,
+      'controlled',
+    );
+
+    assert.equal(
       config.app.environment,
       'test',
     );
@@ -305,6 +324,12 @@ test('environment overrides are loaded without exposing the token in safe summar
       JSON.stringify(
         safeSummary,
       );
+
+    assert.equal(
+      safeSummary.runtime
+        .activationProfile,
+      'controlled',
+    );
 
     assert.equal(
       safeSummary.secrets
@@ -341,6 +366,157 @@ test('environment overrides are loaded without exposing the token in safe summar
       },
     );
   }
+});
+
+test('missing activation profile override preserves safe default', () => {
+  const config =
+    loadConfig({
+      configPath:
+        DEFAULT_CONFIG_PATH,
+
+      env: {},
+
+      loadEnvFile:
+        false,
+    });
+
+  assert.equal(
+    config.runtime
+      .activationProfile,
+    'safe',
+  );
+
+  const safeSummary =
+    getSafeConfigSummary(
+      config,
+    );
+
+  assert.equal(
+    safeSummary.runtime
+      .activationProfile,
+    'safe',
+  );
+});
+
+test('process environment activation profile overrides file environment value', () => {
+  const temporaryDirectory =
+    mkdtempSync(
+      join(
+        tmpdir(),
+        'ivac-config-test-',
+      ),
+    );
+
+  const environmentFile =
+    join(
+      temporaryDirectory,
+      '.env.local',
+    );
+
+  writeFileSync(
+    environmentFile,
+    [
+      'ACTIVATION_PROFILE=safe',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  try {
+    const config =
+      loadConfig({
+        configPath:
+          DEFAULT_CONFIG_PATH,
+
+        envPath:
+          environmentFile,
+
+        env: {
+          ACTIVATION_PROFILE:
+            'controlled',
+        },
+
+        loadEnvFile:
+          true,
+      });
+
+    assert.equal(
+      config.runtime
+        .activationProfile,
+      'controlled',
+    );
+  } finally {
+    rmSync(
+      temporaryDirectory,
+      {
+        recursive: true,
+        force: true,
+      },
+    );
+  }
+});
+
+test('invalid activation profile environment value fails closed', () => {
+  assert.throws(
+    () => {
+      loadConfig({
+        configPath:
+          DEFAULT_CONFIG_PATH,
+
+        env: {
+          ACTIVATION_PROFILE:
+            'unsafe',
+        },
+
+        loadEnvFile:
+          false,
+      });
+    },
+
+    (error) => {
+      assert.ok(
+        error instanceof ConfigError,
+      );
+
+      assert.match(
+        error.message,
+        /Environment configuration is invalid/,
+      );
+
+      assert.equal(
+        JSON.stringify(
+          error.details,
+        ).includes(
+          'ACTIVATION_PROFILE',
+        ),
+        true,
+      );
+
+      return true;
+    },
+  );
+});
+
+test('blank activation profile environment value preserves safe default', () => {
+  const config =
+    loadConfig({
+      configPath:
+        DEFAULT_CONFIG_PATH,
+
+      env: {
+        ACTIVATION_PROFILE:
+          '   ',
+      },
+
+      loadEnvFile:
+        false,
+    });
+
+  assert.equal(
+    config.runtime
+      .activationProfile,
+    'safe',
+  );
 });
 
 test('dashboard rejects non-loopback bind addresses', () => {
