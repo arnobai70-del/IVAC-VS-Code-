@@ -145,6 +145,10 @@ import {
 } from './runtime/intake-execution-handler.js';
 
 import {
+  ManualChallengeOperations,
+} from './runtime/manual-challenge-operations.js';
+
+import {
   IntakeLoop,
 } from './runtime/intake-loop.js';
 
@@ -1056,6 +1060,13 @@ export async function main() {
         logger,
       });
 
+    const manualChallengeOperations =
+      new ManualChallengeOperations({
+        jobStore,
+        ipAllocator,
+        intakeExecutionHandler,
+      });
+
     intakeLoop =
       new IntakeLoop({
         portalIntakeService,
@@ -1670,7 +1681,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          34,
+          35,
 
         environment:
           config.app
@@ -1854,7 +1865,7 @@ export async function main() {
 
     return {
       phase:
-        34,
+        35,
 
       readiness:
         runtimeReadiness,
@@ -1890,8 +1901,15 @@ export async function main() {
           .getStatus(),
 
       manualChallenge: {
+        operations:
+          config.runtime
+            .intakeEnabled
+            ? manualChallengeOperations
+            : null,
+
         resumeAvailableWithinProcess:
-          true,
+          config.runtime
+            .intakeEnabled,
 
         explicitOnly:
           true,

@@ -508,7 +508,7 @@ test(
 
 
 test(
-  'application bootstrap uses Phase 34 non-destructive E2E checkpoint with existing readiness gates',
+  'application bootstrap uses Phase 35 explicit manual challenge operations with existing readiness gates',
   () => {
     const source =
       readFileSync(
@@ -716,11 +716,60 @@ test(
     );
 
     /*
-     * Bootstrap surfaces bounded readiness states and Phase 34.
+     * Phase 35 exposes an explicit in-process manual challenge
+     * operations boundary without adding automatic resume or a
+     * dashboard mutation endpoint.
+     */
+    assert.equal(
+      source.includes(
+        "from './runtime/manual-challenge-operations.js';",
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'ManualChallengeOperations',
+      ),
+      true,
+    );
+
+    assert.match(
+      source,
+      /new ManualChallengeOperations\(\{\s*jobStore,\s*ipAllocator,\s*intakeExecutionHandler,\s*\}\)/,
+    );
+
+    assert.match(
+      source,
+      /operations:\s*config\.runtime\s*\.intakeEnabled\s*\?\s*manualChallengeOperations\s*:\s*null/,
+    );
+
+    assert.match(
+      source,
+      /resumeAvailableWithinProcess:\s*config\.runtime\s*\.intakeEnabled/,
+    );
+
+    assert.match(
+      source,
+      /automaticResume:\s*false/,
+    );
+
+    assert.match(
+      source,
+      /restartRecoverable:\s*false/,
+    );
+
+    assert.match(
+      source,
+      /dashboardMutationEndpoint:\s*false/,
+    );
+
+    /*
+     * Bootstrap surfaces bounded readiness states and Phase 35.
      */
     assert.match(
       source,
-      /phase:\s*34/,
+      /phase:\s*35/,
     );
 
     assert.match(
