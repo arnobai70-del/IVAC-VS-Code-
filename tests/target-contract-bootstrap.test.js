@@ -508,7 +508,7 @@ test(
 
 
 test(
-  'application bootstrap uses Phase 30 static readiness gate with verified auth contract',
+  'application bootstrap uses Phase 31 proxy readiness with verified auth contract',
   () => {
     const source =
       readFileSync(
@@ -520,6 +520,10 @@ test(
         'utf8',
       );
 
+    /*
+     * Phase 29 verified auth contract remains the only target
+     * contract source used by bootstrap.
+     */
     assert.equal(
       source.includes(
         'createVerifiedIvacAuthTargetContract',
@@ -534,6 +538,9 @@ test(
       false,
     );
 
+    /*
+     * Phase 30 static destructive-runtime readiness remains wired.
+     */
     assert.equal(
       source.includes(
         "from './runtime/runtime-readiness.js';",
@@ -550,13 +557,6 @@ test(
 
     assert.equal(
       source.includes(
-        'function assertDestructiveRuntimeReady',
-      ),
-      false,
-    );
-
-    assert.equal(
-      source.includes(
         'runtimeReadiness',
       ),
       true,
@@ -567,9 +567,88 @@ test(
       /readiness:\s*runtimeReadiness/,
     );
 
+    /*
+     * Phase 31 adds bounded proxy/network readiness.
+     */
+    assert.equal(
+      source.includes(
+        "from './network/network-health.js';",
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'NetworkHealthService',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        "from './network/proxy-readiness.js';",
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'assertProxyReadinessForIntake',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'inspectProxyPoolReadiness',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'probeProxyReadiness',
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'proxyReadiness',
+      ),
+      true,
+    );
+
+    /*
+     * Safe startup inspects only. Destructive intake is the only
+     * path allowed to invoke active proxy health probing.
+     */
     assert.match(
       source,
-      /phase:\s*30/,
+      /config\.runtime\s*\.intakeEnabled\s*\?\s*await probeProxyReadiness/,
+    );
+
+    assert.match(
+      source,
+      /:\s*inspectProxyPoolReadiness/,
+    );
+
+    assert.match(
+      source,
+      /assertProxyReadinessForIntake/,
+    );
+
+    /*
+     * Phase 31 readiness is surfaced from bootstrap.
+     */
+    assert.match(
+      source,
+      /phase:\s*31/,
+    );
+
+    assert.match(
+      source,
+      /proxyReadiness,/,
     );
   },
 );

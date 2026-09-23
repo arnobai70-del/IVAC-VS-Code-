@@ -54,6 +54,16 @@ import {
 } from './network/dispatcher-pool.js';
 
 import {
+  NetworkHealthService,
+} from './network/network-health.js';
+
+import {
+  assertProxyReadinessForIntake,
+  inspectProxyPoolReadiness,
+  probeProxyReadiness,
+} from './network/proxy-readiness.js';
+
+import {
   IntakeReservationStore,
 } from './network/intake-reservation-store.js';
 
@@ -153,6 +163,7 @@ import {
   loadWorkflowDefinition,
 } from './workflow/loader.js';
 
+
 function summarizeRecovery(
   results,
 ) {
@@ -177,6 +188,7 @@ function summarizeRecovery(
     actions,
   };
 }
+
 
 function summarizeFinalResultRecovery(
   results,
@@ -216,6 +228,7 @@ function summarizeFinalResultRecovery(
   };
 }
 
+
 async function stopDashboardServer(
   dashboardServer,
 ) {
@@ -243,6 +256,7 @@ async function stopDashboardServer(
 
   return false;
 }
+
 
 export async function main() {
   const config =
@@ -569,6 +583,92 @@ export async function main() {
       new DispatcherPool({
         proxyPool,
       });
+
+    const networkHealthService =
+      new NetworkHealthService({
+        proxyPool,
+        dispatcherPool,
+      });
+
+    let proxyReadiness;
+
+    try {
+      /*
+       * Phase 31 proxy readiness boundary.
+       *
+       * Safe/default startup performs bounded inspection only.
+       * No proxy health request is sent while destructive Portal
+       * intake remains disabled.
+       *
+       * When intake is explicitly enabled, every enabled proxy is
+       * health-probed through NetworkHealthService.
+       *
+       * NetworkHealthService uses the dedicated proxy probe
+       * dispatcher boundary. It never falls back to a direct
+       * connection and it never shares a job execution dispatcher.
+       */
+      proxyReadiness =
+        config.runtime
+          .intakeEnabled
+          ? await probeProxyReadiness({
+              sourceExists:
+                proxyConfig
+                  .sourceExists,
+
+              healthCheckUrl:
+                config.network
+                  .healthCheckUrl,
+
+              timeoutMs:
+                config.network
+                  .healthTimeoutMs,
+
+              cooldownMs:
+                config.network
+                  .cooldownMs,
+
+              proxyPool,
+
+              networkHealthService,
+            })
+          : inspectProxyPoolReadiness({
+              sourceExists:
+                proxyConfig
+                  .sourceExists,
+
+              healthCheckUrl:
+                config.network
+                  .healthCheckUrl,
+
+              proxyPool,
+            });
+
+      assertProxyReadinessForIntake({
+        intakeEnabled:
+          config.runtime
+            .intakeEnabled,
+
+        readiness:
+          proxyReadiness,
+      });
+    } catch (error) {
+      /*
+       * A rejected activation may already have created probe
+       * dispatchers. Close them before propagating the fail-closed
+       * startup error.
+       */
+      await dispatcherPool
+        .closeAll();
+
+      throw error;
+    }
+
+    logger.info(
+      {
+        proxyReadiness,
+      },
+      'Proxy readiness evaluated.',
+    );
 
     const sessionManager =
       new SessionManager({
@@ -1530,7 +1630,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          30,
+          31,
 
         environment:
           config.app
@@ -1539,6 +1639,8 @@ export async function main() {
         dashboardEnabled:
           config.dashboard
             .enabled,
+
+        proxyReadiness,
 
         intake: {
           enabled:
@@ -1710,10 +1812,12 @@ export async function main() {
 
     return {
       phase:
-        30,
+        31,
 
       readiness:
         runtimeReadiness,
+
+      proxyReadiness,
 
       recovery:
         summarizeRecovery(
@@ -1788,6 +1892,7 @@ export async function main() {
   }
 }
 
+
 function isDirectExecution() {
   if (
     !process.argv[1]
@@ -1806,6 +1911,7 @@ function isDirectExecution() {
     )
   );
 }
+
 
 if (
   isDirectExecution()
