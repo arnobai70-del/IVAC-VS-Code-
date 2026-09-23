@@ -1,4 +1,5 @@
 import {
+  isTerminalJobState,
   JOB_STATES,
 } from '../jobs/job-state.js';
 
@@ -458,14 +459,51 @@ export class ManualChallengeOperations {
           normalizedJobId,
         );
 
+    if (!jobAfter) {
+      throw new Error(
+        'Manual challenge resume lost durable job state.',
+      );
+    }
+
+    const terminalAfter =
+      isTerminalJobState(
+        jobAfter.state,
+      );
+
     /*
-     * If the operation remains non-terminal, the same live
-     * allocation identity must still be preserved.
+     * A non-terminal manual-resume outcome must retain the exact
+     * same live allocation. Never treat allocation disappearance
+     * as a successful preservation state and never acquire a
+     * replacement allocation here.
+     */
+    if (
+      !terminalAfter
+      && !allocationAfter
+    ) {
+      throw new Error(
+        'Manual challenge resume lost the job live IP allocation before terminalization.',
+      );
+    }
+
+    /*
+     * Terminal finalization may legitimately release the allocation.
+     *
+     * If an allocation still exists after either terminal or
+     * non-terminal handling, its job/IP binding must remain exactly
+     * the same allocation that entered the explicit resume.
      */
     if (
       allocationAfter
-      && allocationAfter.allocationId
-        !== allocationBefore.allocationId
+      && (
+        allocationAfter.allocationId
+          !== allocationBefore.allocationId
+        || allocationAfter.jobId
+          !== allocationBefore.jobId
+        || allocationAfter.ip
+          !== allocationBefore.ip
+        || allocationAfter.port
+          !== allocationBefore.port
+      )
     ) {
       throw new Error(
         'Manual challenge resume changed the job allocation identity.',

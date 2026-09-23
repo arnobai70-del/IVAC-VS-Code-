@@ -106,6 +106,191 @@ function isTimeoutError(
   );
 }
 
+
+function normalizeBaseUrl(
+  value,
+) {
+  if (
+    typeof value !== 'string'
+    || value.trim() === ''
+  ) {
+    throw new TypeError(
+      'Portal result baseUrl must be a valid HTTPS URL.',
+    );
+  }
+
+  let url;
+
+  try {
+    url =
+      new URL(
+        value.trim(),
+      );
+  } catch {
+    throw new TypeError(
+      'Portal result baseUrl must be a valid HTTPS URL.',
+    );
+  }
+
+  if (
+    url.protocol !== 'https:'
+    || url.username
+    || url.password
+  ) {
+    throw new TypeError(
+      'Portal result baseUrl must be an HTTPS URL without embedded credentials.',
+    );
+  }
+
+  url.hash =
+    '';
+
+  return url.toString();
+}
+
+
+function normalizeStatusPathTemplate(
+  value,
+  baseUrl,
+) {
+  if (
+    typeof value !== 'string'
+  ) {
+    throw new TypeError(
+      'Portal result statusPathTemplate must be a safe same-origin path.',
+    );
+  }
+
+  const normalized =
+    value.trim();
+
+  if (
+    !normalized.startsWith('/')
+    || normalized.startsWith('//')
+    || normalized.includes('\\')
+    || normalized.includes('\r')
+    || normalized.includes('\n')
+  ) {
+    throw new TypeError(
+      'Portal result statusPathTemplate must be a safe same-origin path.',
+    );
+  }
+
+  if (
+    (
+      normalized.match(
+        /\{application\}/g,
+      )
+      ?? []
+    ).length !== 1
+  ) {
+    throw new TypeError(
+      'Portal result statusPathTemplate must contain exactly one "{application}" placeholder.',
+    );
+  }
+
+  const base =
+    new URL(
+      baseUrl,
+    );
+
+  let resolved;
+
+  try {
+    resolved =
+      new URL(
+        normalized.replace(
+          '{application}',
+          '1',
+        ),
+        base,
+      );
+  } catch {
+    throw new TypeError(
+      'Portal result statusPathTemplate must be a safe same-origin path.',
+    );
+  }
+
+  if (
+    resolved.origin
+    !== base.origin
+  ) {
+    throw new TypeError(
+      'Portal result statusPathTemplate must remain on the configured origin.',
+    );
+  }
+
+  return normalized;
+}
+
+
+function buildSameOriginUrl(
+  baseUrl,
+  path,
+) {
+  let base;
+  let resolved;
+
+  try {
+    base =
+      new URL(
+        baseUrl,
+      );
+
+    resolved =
+      new URL(
+        path,
+        base,
+      );
+  } catch {
+    throw notSentError(
+      'Portal final-result route could not be resolved safely.',
+    );
+  }
+
+  if (
+    resolved.origin
+    !== base.origin
+  ) {
+    throw notSentError(
+      'Portal final-result route attempted to leave the configured origin.',
+    );
+  }
+
+  return resolved.toString();
+}
+
+function normalizeOutboundHeaderValue(
+  value,
+  name,
+) {
+  const raw =
+    typeof value === 'string'
+      ? value
+      : '';
+
+  /*
+   * HTTP header values are a trust boundary.
+   *
+   * Validate the original value before trimming so no leading or
+   * trailing C0 control character can disappear before validation.
+   * In particular, CR/LF must never be able to create another
+   * outbound header.
+   */
+  if (
+    /[\u0000-\u001F\u007F]/.test(
+      raw,
+    )
+  ) {
+    throw notSentError(
+      `${name} must not contain HTTP header control characters.`,
+    );
+  }
+
+  return raw.trim();
+}
+
+
 function normalizeApplicationId(
   value,
 ) {
@@ -342,22 +527,27 @@ export class PortalResultHttpContract {
     requestFn = request,
   }) {
     this.baseUrl =
-      baseUrl;
+      normalizeBaseUrl(
+        baseUrl,
+      );
 
     this.statusPathTemplate =
-      statusPathTemplate;
+      normalizeStatusPathTemplate(
+        statusPathTemplate,
+        this.baseUrl,
+      );
 
     this.workerServerName =
-      typeof workerServerName
-        === 'string'
-        ? workerServerName.trim()
-        : '';
+      normalizeOutboundHeaderValue(
+        workerServerName,
+        'Portal worker Server-Name',
+      );
 
     this.accessToken =
-      typeof accessToken
-        === 'string'
-        ? accessToken.trim()
-        : '';
+      normalizeOutboundHeaderValue(
+        accessToken,
+        'Portal API access token',
+      );
 
     this.timeoutMs =
       timeoutMs;
@@ -450,15 +640,25 @@ export class PortalResultHttpContract {
         applicationId,
       );
 
+    /*
+     * Resolve and verify the complete request URL before entering
+     * the network-send uncertainty boundary.
+     *
+     * A route validation failure proves that no request was sent
+     * and must therefore remain NOT_SENT rather than UNCERTAIN.
+     */
+    const requestUrl =
+      buildSameOriginUrl(
+        this.baseUrl,
+        path,
+      );
+
     let response;
 
     try {
       response =
         await this.requestFn(
-          new URL(
-            path,
-            this.baseUrl,
-          ).toString(),
+          requestUrl,
           {
             method:
               'POST',

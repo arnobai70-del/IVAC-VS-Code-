@@ -25,6 +25,89 @@ const logLevelSchema =
     'fatal',
   ]);
 
+
+const httpsUrlSchema =
+  z.string()
+    .url()
+    .superRefine(
+      (
+        value,
+        context,
+      ) => {
+        let url;
+
+        try {
+          url =
+            new URL(
+              value,
+            );
+        } catch {
+          return;
+        }
+
+        if (
+          url.protocol !== 'https:'
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            message:
+              'URL must use HTTPS.',
+          });
+        }
+
+        if (
+          url.username
+          || url.password
+        ) {
+          context.addIssue({
+            code:
+              z.ZodIssueCode.custom,
+
+            message:
+              'URL must not contain embedded credentials.',
+          });
+        }
+      },
+    );
+
+function isSafeSameOriginPath(
+  value,
+) {
+  if (
+    typeof value !== 'string'
+    || !value.startsWith('/')
+    || value.startsWith('//')
+    || value.includes('\\')
+    || value.includes('\r')
+    || value.includes('\n')
+  ) {
+    return false;
+  }
+
+  try {
+    const base =
+      new URL(
+        'https://portal.invalid/',
+      );
+
+    const resolved =
+      new URL(
+        value,
+        base,
+      );
+
+    return (
+      resolved.origin
+      === base.origin
+    );
+  } catch {
+    return false;
+  }
+}
+
+
 const pathSchema =
   z.string()
     .min(1)
@@ -34,6 +117,13 @@ const pathSchema =
       {
         message:
           'Path must start with "/"',
+      },
+    )
+    .refine(
+      isSafeSameOriginPath,
+      {
+        message:
+          'Path must remain on the configured origin and must not use a network-path reference.',
       },
     );
 
@@ -47,6 +137,13 @@ const portalStatusPathTemplateSchema =
       {
         message:
           'Portal status path template must start with "/".',
+      },
+    )
+    .refine(
+      isSafeSameOriginPath,
+      {
+        message:
+          'Portal status path template must remain on the configured origin and must not use a network-path reference.',
       },
     )
     .refine(
@@ -181,7 +278,7 @@ const portalResultSchema =
 const portalSchema =
   z.object({
     baseUrl:
-      z.string().url(),
+      httpsUrlSchema,
 
     pendingPath:
       pathSchema,
@@ -307,7 +404,7 @@ const portalSchema =
 const otpSchema =
   z.object({
     baseUrl:
-      z.string().url(),
+      httpsUrlSchema,
 
     tablePath:
       pathSchema,
@@ -427,8 +524,7 @@ const originSchema =
 const documentsSchema =
   z.object({
     baseUrl:
-      z.string()
-        .url(),
+      httpsUrlSchema,
 
     allowedOrigins:
       z.array(
@@ -687,8 +783,7 @@ export const appConfigSchema =
     target:
       z.object({
         baseUrl:
-          z.string()
-            .url(),
+          httpsUrlSchema,
 
         timeoutMs:
           z.number()

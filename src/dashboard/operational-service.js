@@ -85,6 +85,37 @@ function asSafeTimestamp(value) {
   return null;
 }
 
+function asSafeIsoTimestamp(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return null;
+    }
+
+    return value.toISOString();
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  if (trimmed === "") {
+    return null;
+  }
+
+  const parsed = new Date(trimmed);
+
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString() !== trimmed
+  ) {
+    return null;
+  }
+
+  return trimmed;
+}
+
 function extractJobId(record) {
   return asSafeString(
     firstDefined(record, [
@@ -497,7 +528,7 @@ function projectObservabilitySnapshot(record) {
 
   const projected = {
     checkedAt:
-      asSafeTimestamp(record.checkedAt),
+      asSafeIsoTimestamp(record.checkedAt),
 
     runtime: {
       stopped:
@@ -597,6 +628,32 @@ function projectObservabilitySnapshot(record) {
 
   if (containsNull(projected)) {
     return null;
+  }
+
+  const expectedSafety = {
+    readOnly: true,
+    rawPayloads: false,
+    credentialExposure: false,
+    otpExposure: false,
+    cookieExposure: false,
+    proxyAddressExposure: false,
+    automaticManualChallengeResume: false,
+    replacementIpAcquisition: false,
+  };
+
+  for (
+    const [
+      key,
+      expectedValue,
+    ]
+    of Object.entries(expectedSafety)
+  ) {
+    if (
+      projected.safety[key]
+      !== expectedValue
+    ) {
+      return null;
+    }
   }
 
   return projected;

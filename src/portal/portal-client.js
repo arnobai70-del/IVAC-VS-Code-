@@ -137,6 +137,123 @@ function isTimeoutError(
   );
 }
 
+
+function normalizePortalBaseUrl(
+  value,
+) {
+  if (
+    typeof value !== 'string'
+    || value.trim() === ''
+  ) {
+    throw new ConfigError(
+      'Portal baseUrl must be a valid HTTP or HTTPS URL.',
+    );
+  }
+
+  let url;
+
+  try {
+    url =
+      new URL(
+        value.trim(),
+      );
+  } catch {
+    throw new ConfigError(
+      'Portal baseUrl must be a valid HTTP or HTTPS URL.',
+    );
+  }
+
+  if (
+    (
+      url.protocol !== 'https:'
+      && url.protocol !== 'http:'
+    )
+    || url.username
+    || url.password
+  ) {
+    throw new ConfigError(
+      'Portal baseUrl must use HTTP or HTTPS and must not contain embedded credentials.',
+    );
+  }
+
+  url.hash =
+    '';
+
+  return url.toString();
+}
+
+
+function normalizePortalPath(
+  value,
+  {
+    name,
+    baseUrl,
+    allowNull = false,
+  },
+) {
+  if (
+    allowNull
+    && value === null
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value !== 'string'
+  ) {
+    throw new ConfigError(
+      `${name} must be a safe same-origin path.`,
+    );
+  }
+
+  const normalized =
+    value.trim();
+
+  if (
+    normalized === ''
+    || !normalized.startsWith('/')
+    || normalized.startsWith('//')
+    || normalized.includes('\\')
+    || normalized.includes('\r')
+    || normalized.includes('\n')
+  ) {
+    throw new ConfigError(
+      `${name} must be a safe same-origin path.`,
+    );
+  }
+
+  let base;
+  let resolved;
+
+  try {
+    base =
+      new URL(
+        baseUrl,
+      );
+
+    resolved =
+      new URL(
+        normalized,
+        base,
+      );
+  } catch {
+    throw new ConfigError(
+      `${name} must be a safe same-origin path.`,
+    );
+  }
+
+  if (
+    resolved.origin
+    !== base.origin
+  ) {
+    throw new ConfigError(
+      `${name} must remain on the configured Portal origin.`,
+    );
+  }
+
+  return normalized;
+}
+
 function normalizeWorkerServerName(
   value,
 ) {
@@ -234,24 +351,70 @@ export class PortalClient {
     accessToken,
     requestFn = request,
   }) {
+    const normalizedBaseUrl =
+      normalizePortalBaseUrl(
+        baseUrl,
+      );
+
+    this.baseUrl =
+      normalizedBaseUrl;
+
+    Object.defineProperty(
+      this,
+      'configuredOrigin',
+      {
+        value:
+          new URL(
+            normalizedBaseUrl,
+          ).origin,
+
+        enumerable:
+          false,
+
+        writable:
+          false,
+
+        configurable:
+          false,
+      },
+    );
+
+    this.pendingPath =
+      normalizePortalPath(
+        pendingPath,
+        {
+          name:
+            'Portal pendingPath',
+
+          baseUrl:
+            this.baseUrl,
+        },
+      );
+
+    this.healthPath =
+      normalizePortalPath(
+        healthPath,
+        {
+          name:
+            'Portal healthPath',
+
+          baseUrl:
+            this.baseUrl,
+
+          allowNull:
+            true,
+        },
+      );
+
     if (
-      healthPath !== null
-      && healthPath
-        === pendingPath
+      this.healthPath !== null
+      && this.healthPath
+        === this.pendingPath
     ) {
       throw new ConfigError(
         'Portal health route must not be the destructive pending endpoint.',
       );
     }
-
-    this.baseUrl =
-      baseUrl;
-
-    this.pendingPath =
-      pendingPath;
-
-    this.healthPath =
-      healthPath;
 
     this.workerServerName =
       normalizeWorkerServerName(
@@ -274,10 +437,53 @@ export class PortalClient {
   buildUrl(
     path,
   ) {
-    return new URL(
-      path,
-      this.baseUrl,
-    ).toString();
+    const normalizedBaseUrl =
+      normalizePortalBaseUrl(
+        this.baseUrl,
+      );
+
+    const base =
+      new URL(
+        normalizedBaseUrl,
+      );
+
+    if (
+      base.origin
+      !== this.configuredOrigin
+    ) {
+      throw new ConfigError(
+        'Portal baseUrl origin changed after construction.',
+      );
+    }
+
+    const normalizedPath =
+      normalizePortalPath(
+        path,
+        {
+          name:
+            'Portal route',
+
+          baseUrl:
+            normalizedBaseUrl,
+        },
+      );
+
+    const resolved =
+      new URL(
+        normalizedPath,
+        base,
+      );
+
+    if (
+      resolved.origin
+      !== this.configuredOrigin
+    ) {
+      throw new ConfigError(
+        'Portal route attempted to leave the configured origin.',
+      );
+    }
+
+    return resolved.toString();
   }
 
   getAuthenticatedHeaders() {
@@ -329,14 +535,22 @@ export class PortalClient {
       };
     }
 
+    /*
+     * Resolve the authenticated health URL before entering the
+     * network error boundary. Invalid/cross-origin configuration
+     * must fail before Bearer credentials can be attached.
+     */
+    const healthUrl =
+      this.buildUrl(
+        this.healthPath,
+      );
+
     let response;
 
     try {
       response =
         await this.requestFn(
-          this.buildUrl(
-            this.healthPath,
-          ),
+          healthUrl,
           {
             method:
               'GET',
@@ -568,14 +782,22 @@ export class PortalClient {
       );
     }
 
+    /*
+     * Resolve the destructive pending URL before entering the
+     * network error boundary. Invalid/cross-origin configuration
+     * must fail before the worker identity can be sent.
+     */
+    const pendingUrl =
+      this.buildUrl(
+        this.pendingPath,
+      );
+
     let response;
 
     try {
       response =
         await this.requestFn(
-          this.buildUrl(
-            this.pendingPath,
-          ),
+          pendingUrl,
           {
             method:
               'GET',

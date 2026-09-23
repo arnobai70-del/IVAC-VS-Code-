@@ -785,3 +785,423 @@ test('invalid concurrency is rejected', () => {
     );
   }
 });
+
+test(
+  'production service base URLs require HTTPS transport',
+  () => {
+    const temporaryDirectory =
+      mkdtempSync(
+        join(
+          tmpdir(),
+          'ivac-config-https-test-',
+        ),
+      );
+
+    const configFile =
+      join(
+        temporaryDirectory,
+        'app.json',
+      );
+
+    const sourceConfig =
+      JSON.parse(
+        readFileSync(
+          DEFAULT_CONFIG_PATH,
+          'utf8',
+        ),
+      );
+
+    const cases = [
+      {
+        path:
+          'portal.baseUrl',
+
+        mutate(config) {
+          config.portal.baseUrl =
+            'http://mrboss.live';
+        },
+      },
+
+      {
+        path:
+          'otp.baseUrl',
+
+        mutate(config) {
+          config.otp.baseUrl =
+            'http://otp.cat-paymentbd.com';
+        },
+      },
+
+      {
+        path:
+          'documents.baseUrl',
+
+        mutate(config) {
+          config.documents.baseUrl =
+            'http://mrboss.live';
+        },
+      },
+
+      {
+        path:
+          'target.baseUrl',
+
+        mutate(config) {
+          config.target.baseUrl =
+            'http://api.ivacbd.com/iams/api/v1';
+        },
+      },
+    ];
+
+    try {
+      for (const testCase of cases) {
+        const invalidConfig =
+          structuredClone(
+            sourceConfig,
+          );
+
+        testCase.mutate(
+          invalidConfig,
+        );
+
+        writeFileSync(
+          configFile,
+          JSON.stringify(
+            invalidConfig,
+            null,
+            2,
+          ),
+          'utf8',
+        );
+
+        assert.throws(
+          () => {
+            loadConfig({
+              configPath:
+                configFile,
+
+              env: {},
+
+              loadEnvFile:
+                false,
+            });
+          },
+
+          (error) => {
+            assert.ok(
+              error instanceof ConfigError,
+            );
+
+            const details =
+              JSON.stringify(
+                error.details,
+              );
+
+            assert.equal(
+              details.includes(
+                testCase.path,
+              ),
+              true,
+              `${testCase.path} should be identified`,
+            );
+
+            assert.equal(
+              details.includes(
+                'URL must use HTTPS.',
+              ),
+              true,
+              `${testCase.path} should require HTTPS`,
+            );
+
+            return true;
+          },
+        );
+      }
+    } finally {
+      rmSync(
+        temporaryDirectory,
+        {
+          recursive: true,
+          force: true,
+        },
+      );
+    }
+  },
+);
+
+
+test(
+  'production service base URLs reject embedded credentials',
+  () => {
+    const temporaryDirectory =
+      mkdtempSync(
+        join(
+          tmpdir(),
+          'ivac-config-credentials-test-',
+        ),
+      );
+
+    const configFile =
+      join(
+        temporaryDirectory,
+        'app.json',
+      );
+
+    const sourceConfig =
+      JSON.parse(
+        readFileSync(
+          DEFAULT_CONFIG_PATH,
+          'utf8',
+        ),
+      );
+
+    const cases = [
+      {
+        path:
+          'portal.baseUrl',
+
+        mutate(config) {
+          config.portal.baseUrl =
+            'https://user:password@mrboss.live';
+        },
+      },
+
+      {
+        path:
+          'otp.baseUrl',
+
+        mutate(config) {
+          config.otp.baseUrl =
+            'https://user:password@otp.cat-paymentbd.com';
+        },
+      },
+
+      {
+        path:
+          'documents.baseUrl',
+
+        mutate(config) {
+          config.documents.baseUrl =
+            'https://user:password@mrboss.live';
+        },
+      },
+
+      {
+        path:
+          'target.baseUrl',
+
+        mutate(config) {
+          config.target.baseUrl =
+            'https://user:password@api.ivacbd.com/iams/api/v1';
+        },
+      },
+    ];
+
+    try {
+      for (const testCase of cases) {
+        const invalidConfig =
+          structuredClone(
+            sourceConfig,
+          );
+
+        testCase.mutate(
+          invalidConfig,
+        );
+
+        writeFileSync(
+          configFile,
+          JSON.stringify(
+            invalidConfig,
+            null,
+            2,
+          ),
+          'utf8',
+        );
+
+        assert.throws(
+          () => {
+            loadConfig({
+              configPath:
+                configFile,
+
+              env: {},
+
+              loadEnvFile:
+                false,
+            });
+          },
+
+          (error) => {
+            assert.ok(
+              error instanceof ConfigError,
+            );
+
+            const details =
+              JSON.stringify(
+                error.details,
+              );
+
+            assert.equal(
+              details.includes(
+                testCase.path,
+              ),
+              true,
+              `${testCase.path} should be identified`,
+            );
+
+            assert.equal(
+              details.includes(
+                'URL must not contain embedded credentials.',
+              ),
+              true,
+              `${testCase.path} should reject URL credentials`,
+            );
+
+            return true;
+          },
+        );
+      }
+    } finally {
+      rmSync(
+        temporaryDirectory,
+        {
+          recursive: true,
+          force: true,
+        },
+      );
+    }
+  },
+);
+
+
+test(
+  'configured service paths reject network-path references',
+  () => {
+    const temporaryDirectory =
+      mkdtempSync(
+        join(
+          tmpdir(),
+          'ivac-config-path-test-',
+        ),
+      );
+
+    const configFile =
+      join(
+        temporaryDirectory,
+        'app.json',
+      );
+
+    const sourceConfig =
+      JSON.parse(
+        readFileSync(
+          DEFAULT_CONFIG_PATH,
+          'utf8',
+        ),
+      );
+
+    const cases = [
+      {
+        path:
+          'portal.pendingPath',
+
+        mutate(config) {
+          config.portal.pendingPath =
+            '//evil.example/api/application/pending';
+        },
+      },
+
+      {
+        path:
+          'portal.healthPath',
+
+        mutate(config) {
+          config.portal.healthPath =
+            '//evil.example/api/novaflow/v1/ping';
+        },
+      },
+
+      {
+        path:
+          'portal.result.statusPathTemplate',
+
+        mutate(config) {
+          config.portal.result.statusPathTemplate =
+            '//evil.example/api/application/{application}/status';
+        },
+      },
+
+      {
+        path:
+          'otp.tablePath',
+
+        mutate(config) {
+          config.otp.tablePath =
+            '//evil.example/otp_table';
+        },
+      },
+    ];
+
+    try {
+      for (const testCase of cases) {
+        const invalidConfig =
+          structuredClone(
+            sourceConfig,
+          );
+
+        testCase.mutate(
+          invalidConfig,
+        );
+
+        writeFileSync(
+          configFile,
+          JSON.stringify(
+            invalidConfig,
+            null,
+            2,
+          ),
+          'utf8',
+        );
+
+        assert.throws(
+          () => {
+            loadConfig({
+              configPath:
+                configFile,
+
+              env: {},
+
+              loadEnvFile:
+                false,
+            });
+          },
+
+          (error) => {
+            assert.ok(
+              error instanceof ConfigError,
+            );
+
+            assert.equal(
+              JSON.stringify(
+                error.details,
+              ).includes(
+                testCase.path,
+              ),
+              true,
+              `${testCase.path} should be rejected`,
+            );
+
+            return true;
+          },
+        );
+      }
+    } finally {
+      rmSync(
+        temporaryDirectory,
+        {
+          recursive: true,
+          force: true,
+        },
+      );
+    }
+  },
+);

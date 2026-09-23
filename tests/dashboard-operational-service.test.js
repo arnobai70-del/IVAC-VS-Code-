@@ -1142,3 +1142,219 @@ test("observabilityProvider constructor option is validated", () => {
     /observabilityProvider must be a function or null/,
   );
 });
+
+
+function createValidObservabilitySnapshot() {
+  return {
+    checkedAt:
+      "2026-09-23T02:00:00.000Z",
+
+    runtime: {
+      stopped: false,
+      handlingCycle: false,
+      inFlight: 0,
+      memoryContexts: 0,
+      activeExecutions: 0,
+      activeJobs: 0,
+    },
+
+    throughput: {
+      completedCycles: 0,
+      admitted: 0,
+      workflowCompleted: 0,
+      failed: 0,
+      manualChallenges: 0,
+    },
+
+    manualResume: {
+      total: 0,
+      completed: 0,
+      failed: 0,
+      manualChallenges: 0,
+      aborted: 0,
+    },
+
+    jobs: {
+      incomplete: 0,
+
+      byState: {
+        PENDING: 0,
+        CLAIMED: 0,
+        WAITING_FOR_IP: 0,
+        RUNNING: 0,
+        WAITING_FOR_OTP: 0,
+        WAITING_FOR_MANUAL_CHALLENGE: 0,
+        RETRY_PENDING: 0,
+      },
+
+      waitingForManualChallenge:
+        0,
+    },
+
+    network: {
+      liveAllocations: 0,
+      proxies: 0,
+      healthyAvailable: 0,
+    },
+
+    finalResults: {
+      pending: 0,
+      inFlight: 0,
+      uncertain: 0,
+      delivered: 0,
+    },
+
+    safety: {
+      readOnly: true,
+      rawPayloads: false,
+      credentialExposure: false,
+      otpExposure: false,
+      cookieExposure: false,
+      proxyAddressExposure: false,
+      automaticManualChallengeResume: false,
+      replacementIpAcquisition: false,
+    },
+  };
+}
+
+
+test(
+  "observability rejects non-canonical or invalid checkedAt timestamps",
+  async () => {
+    const fixture =
+      createFixture();
+
+    const invalidCheckedAtValues = [
+      "not-a-timestamp",
+      "",
+      "2026-09-23T02:00:00Z",
+      "2026-09-23 02:00:00",
+      0,
+      null,
+    ];
+
+    for (
+      const checkedAt
+      of invalidCheckedAtValues
+    ) {
+      const service =
+        new OperationalService({
+          jobStore:
+            fixture.service.jobStore,
+
+          ipAllocator:
+            fixture.service.ipAllocator,
+
+          proxyPool:
+            fixture.service.proxyPool,
+
+          finalResultStore:
+            fixture.service.finalResultStore,
+
+          observabilityProvider:
+            async () => ({
+              ...createValidObservabilitySnapshot(),
+
+              checkedAt,
+            }),
+        });
+
+      assert.deepEqual(
+        await service.getObservability(),
+        {
+          configured: true,
+          snapshot: null,
+          reason:
+            "INVALID_OBSERVABILITY_SNAPSHOT",
+        },
+      );
+    }
+  },
+);
+
+
+test(
+  "observability rejects tampered safety contract flags fail-closed",
+  async () => {
+    const fixture =
+      createFixture();
+
+    const tamperedSafetyFlags = [
+      [
+        "readOnly",
+        false,
+      ],
+      [
+        "rawPayloads",
+        true,
+      ],
+      [
+        "credentialExposure",
+        true,
+      ],
+      [
+        "otpExposure",
+        true,
+      ],
+      [
+        "cookieExposure",
+        true,
+      ],
+      [
+        "proxyAddressExposure",
+        true,
+      ],
+      [
+        "automaticManualChallengeResume",
+        true,
+      ],
+      [
+        "replacementIpAcquisition",
+        true,
+      ],
+    ];
+
+    for (
+      const [
+        key,
+        unsafeValue,
+      ]
+      of tamperedSafetyFlags
+    ) {
+      const snapshot =
+        createValidObservabilitySnapshot();
+
+      snapshot.safety[key] =
+        unsafeValue;
+
+      const service =
+        new OperationalService({
+          jobStore:
+            fixture.service.jobStore,
+
+          ipAllocator:
+            fixture.service.ipAllocator,
+
+          proxyPool:
+            fixture.service.proxyPool,
+
+          finalResultStore:
+            fixture.service.finalResultStore,
+
+          observabilityProvider:
+            async () =>
+              snapshot,
+        });
+
+      assert.deepEqual(
+        await service.getObservability(),
+        {
+          configured: true,
+          snapshot: null,
+          reason:
+            "INVALID_OBSERVABILITY_SNAPSHOT",
+        },
+      );
+    }
+  },
+);

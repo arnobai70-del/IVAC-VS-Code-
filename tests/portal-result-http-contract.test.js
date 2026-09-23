@@ -800,3 +800,244 @@ test(
     );
   },
 );
+
+test(
+  'Portal result contract rejects insecure HTTP base URL',
+  () => {
+    assert.throws(
+      () => {
+        new PortalResultHttpContract({
+          baseUrl:
+            'http://mrboss.live',
+
+          statusPathTemplate:
+            '/api/application/{application}/status',
+
+          workerServerName:
+            'gw.dataimpulse.com',
+
+          accessToken:
+            'test-token',
+
+          timeoutMs:
+            2000,
+
+          maxResponseBytes:
+            1024 * 1024,
+        });
+      },
+
+      /baseUrl must be an HTTPS URL without embedded credentials/,
+    );
+  },
+);
+
+
+test(
+  'Portal result contract rejects base URL with embedded credentials',
+  () => {
+    assert.throws(
+      () => {
+        new PortalResultHttpContract({
+          baseUrl:
+            'https://user:password@mrboss.live',
+
+          statusPathTemplate:
+            '/api/application/{application}/status',
+
+          workerServerName:
+            'gw.dataimpulse.com',
+
+          accessToken:
+            'test-token',
+
+          timeoutMs:
+            2000,
+
+          maxResponseBytes:
+            1024 * 1024,
+        });
+      },
+
+      /baseUrl must be an HTTPS URL without embedded credentials/,
+    );
+  },
+);
+
+
+test(
+  'Portal result contract rejects network-path status template before construction completes',
+  () => {
+    assert.throws(
+      () => {
+        new PortalResultHttpContract({
+          baseUrl:
+            'https://mrboss.live',
+
+          statusPathTemplate:
+            '//evil.example/api/application/{application}/status',
+
+          workerServerName:
+            'gw.dataimpulse.com',
+
+          accessToken:
+            'test-token',
+
+          timeoutMs:
+            2000,
+
+          maxResponseBytes:
+            1024 * 1024,
+        });
+      },
+
+      /statusPathTemplate must be a safe same-origin path/,
+    );
+  },
+);
+
+
+test(
+  'Portal result send fails closed if status route is changed to another origin after construction',
+  async () => {
+    let requests =
+      0;
+
+    const contract =
+      makeContract({
+        requestFn:
+          async () => {
+            requests +=
+              1;
+
+            throw new Error(
+              'request must not be sent',
+            );
+          },
+      });
+
+    /*
+     * Defense-in-depth:
+     *
+     * Even if internal mutable state is altered after the
+     * constructor validation, the send boundary must verify
+     * origin again before attaching Bearer auth or Server-Name.
+     */
+    contract.statusPathTemplate =
+      '//evil.example/api/application/{application}/status';
+
+    await assert.rejects(
+      contract.send({
+        result:
+          makeResult(),
+      }),
+
+      (error) => {
+        assert.equal(
+          error.details
+            ?.deliveryCertainty,
+          PORTAL_RESULT_DELIVERY_CERTAINTY
+            .NOT_SENT,
+        );
+
+        assert.match(
+          error.message,
+          /attempted to leave the configured origin/,
+        );
+
+        return true;
+      },
+    );
+
+    assert.equal(
+      requests,
+      0,
+    );
+  },
+);
+
+
+test(
+  'Portal result contract rejects control characters in outbound headers',
+  () => {
+    const cases = [
+      {
+        name:
+          'worker Server-Name CRLF',
+
+        options: {
+          workerServerName:
+            "gw.dataimpulse.com\r\nX-Injected: yes",
+        },
+      },
+
+      {
+        name:
+          'access token newline',
+
+        options: {
+          accessToken:
+            "test-token\nX-Injected: yes",
+        },
+      },
+
+      {
+        name:
+          'access token tab',
+
+        options: {
+          accessToken:
+            "test\t-token",
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      assert.throws(
+        () => {
+          makeContract(
+            testCase.options,
+          );
+        },
+
+        (error) => {
+          assert.equal(
+            error.details
+              ?.deliveryCertainty,
+            PORTAL_RESULT_DELIVERY_CERTAINTY
+              .NOT_SENT,
+            `${testCase.name} must fail before network send`,
+          );
+
+          return true;
+        },
+      );
+    }
+  },
+);
+
+
+test(
+  'Portal result contract rejects DEL in outbound header values',
+  () => {
+    assert.throws(
+      () => {
+        makeContract({
+          workerServerName:
+            `worker${String.fromCharCode(127)}name`,
+        });
+      },
+
+      (error) => {
+        assert.equal(
+          error.details
+            ?.deliveryCertainty,
+          PORTAL_RESULT_DELIVERY_CERTAINTY
+            .NOT_SENT,
+        );
+
+        return true;
+      },
+    );
+  },
+);

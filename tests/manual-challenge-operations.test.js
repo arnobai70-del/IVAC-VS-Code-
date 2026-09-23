@@ -1083,3 +1083,105 @@ test(
     );
   },
 );
+test(
+  'non-terminal resume fails closed if live allocation disappears',
+  async () => {
+    const harness =
+      createHarness({
+        resumeImplementation:
+          async (
+            args,
+            controls,
+          ) => {
+            assert.equal(
+              args.jobId,
+              'job-1',
+            );
+
+            controls.setAllocation(
+              null,
+            );
+
+            return {
+              status:
+                'MANUAL_CHALLENGE',
+
+              errorCode:
+                'MANUAL_CHALLENGE_REQUIRED',
+            };
+          },
+      });
+
+    await assert.rejects(
+      harness.operations
+        .resume({
+          jobId:
+            'job-1',
+        }),
+
+      /lost the job live IP allocation before terminalization/,
+    );
+
+    assert.equal(
+      harness
+        .getResumeCalls()
+        .length,
+      1,
+    );
+  },
+);
+
+
+test(
+  'non-terminal resume fails closed if same allocation id changes IP binding',
+  async () => {
+    const harness =
+      createHarness({
+        resumeImplementation:
+          async (
+            args,
+            controls,
+          ) => {
+            assert.equal(
+              args.jobId,
+              'job-1',
+            );
+
+            const current =
+              controls.getAllocation();
+
+            controls.setAllocation({
+              ...current,
+
+              ip:
+                '203.0.113.99',
+            });
+
+            return {
+              status:
+                'MANUAL_CHALLENGE',
+
+              errorCode:
+                'MANUAL_CHALLENGE_REQUIRED',
+            };
+          },
+      });
+
+    await assert.rejects(
+      harness.operations
+        .resume({
+          jobId:
+            'job-1',
+        }),
+
+      /Manual challenge resume changed the job allocation identity/,
+    );
+
+    assert.equal(
+      harness
+        .getResumeCalls()
+        .length,
+      1,
+    );
+  },
+);

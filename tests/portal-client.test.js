@@ -643,3 +643,311 @@ test(
     );
   },
 );
+
+test(
+  'Portal client rejects embedded credentials in base URL',
+  () => {
+    assert.throws(
+      () => {
+        new PortalClient({
+          baseUrl:
+            'https://user:password@example.invalid',
+
+          pendingPath:
+            '/api/application/pending',
+
+          healthPath:
+            '/api/novaflow/v1/ping',
+
+          workerServerName:
+            'gw.dataimpulse.com',
+
+          timeoutMs:
+            1000,
+
+          maxResponseBytes:
+            1024,
+
+          accessToken:
+            'test-token',
+        });
+      },
+
+      /must not contain embedded credentials/i,
+    );
+  },
+);
+
+
+test(
+  'Portal client rejects network-path pending route before any request can be sent',
+  () => {
+    let requests =
+      0;
+
+    assert.throws(
+      () => {
+        new PortalClient({
+          baseUrl:
+            'https://example.invalid',
+
+          pendingPath:
+            '//evil.example/api/application/pending',
+
+          healthPath:
+            '/api/novaflow/v1/ping',
+
+          workerServerName:
+            'gw.dataimpulse.com',
+
+          timeoutMs:
+            1000,
+
+          maxResponseBytes:
+            1024,
+
+          accessToken:
+            'test-token',
+
+          requestFn:
+            async () => {
+              requests +=
+                1;
+
+              throw new Error(
+                'must not be called',
+              );
+            },
+        });
+      },
+
+      /pendingPath must be a safe same-origin path/i,
+    );
+
+    assert.equal(
+      requests,
+      0,
+    );
+  },
+);
+
+
+test(
+  'Portal client rejects network-path health route before Bearer credentials can be sent',
+  () => {
+    let requests =
+      0;
+
+    assert.throws(
+      () => {
+        new PortalClient({
+          baseUrl:
+            'https://example.invalid',
+
+          pendingPath:
+            '/api/application/pending',
+
+          healthPath:
+            '//evil.example/api/novaflow/v1/ping',
+
+          workerServerName:
+            'gw.dataimpulse.com',
+
+          timeoutMs:
+            1000,
+
+          maxResponseBytes:
+            1024,
+
+          accessToken:
+            'test-token',
+
+          requestFn:
+            async () => {
+              requests +=
+                1;
+
+              throw new Error(
+                'must not be called',
+              );
+            },
+        });
+      },
+
+      /healthPath must be a safe same-origin path/i,
+    );
+
+    assert.equal(
+      requests,
+      0,
+    );
+  },
+);
+
+
+test(
+  'Portal health check fails closed if route is changed to another origin after construction',
+  async () => {
+    let requests =
+      0;
+
+    const client =
+      new PortalClient({
+        baseUrl:
+          'https://example.invalid',
+
+        pendingPath:
+          '/api/application/pending',
+
+        healthPath:
+          '/api/novaflow/v1/ping',
+
+        workerServerName:
+          'gw.dataimpulse.com',
+
+        timeoutMs:
+          1000,
+
+        maxResponseBytes:
+          1024,
+
+        accessToken:
+          'test-token',
+
+        requestFn:
+          async () => {
+            requests +=
+              1;
+
+            throw new Error(
+              'must not be called',
+            );
+          },
+      });
+
+    client.healthPath =
+      '//evil.example/api/novaflow/v1/ping';
+
+    await assert.rejects(
+      client.healthCheck(),
+      /Portal route must be a safe same-origin path/i,
+    );
+
+    assert.equal(
+      requests,
+      0,
+    );
+  },
+);
+
+
+test(
+  'Portal pending fetch fails closed if route is changed to another origin after construction',
+  async () => {
+    let requests =
+      0;
+
+    const client =
+      new PortalClient({
+        baseUrl:
+          'https://example.invalid',
+
+        pendingPath:
+          '/api/application/pending',
+
+        healthPath:
+          '/api/novaflow/v1/ping',
+
+        workerServerName:
+          'gw.dataimpulse.com',
+
+        timeoutMs:
+          1000,
+
+        maxResponseBytes:
+          1024,
+
+        accessToken:
+          'test-token',
+
+        requestFn:
+          async () => {
+            requests +=
+              1;
+
+            throw new Error(
+              'must not be called',
+            );
+          },
+      });
+
+    client.pendingPath =
+      '//evil.example/api/application/pending';
+
+    await assert.rejects(
+      client.fetchPendingOne(),
+      /Portal route must be a safe same-origin path/i,
+    );
+
+    assert.equal(
+      requests,
+      0,
+    );
+  },
+);
+
+
+test(
+  'Portal client rejects post-construction base URL origin drift before network send',
+  async () => {
+    let requests =
+      0;
+
+    const client =
+      new PortalClient({
+        baseUrl:
+          'https://example.invalid',
+
+        pendingPath:
+          '/api/application/pending',
+
+        healthPath:
+          '/api/novaflow/v1/ping',
+
+        workerServerName:
+          'gw.dataimpulse.com',
+
+        timeoutMs:
+          1000,
+
+        maxResponseBytes:
+          1024,
+
+        accessToken:
+          'test-token',
+
+        requestFn:
+          async () => {
+            requests +=
+              1;
+
+            throw new Error(
+              'must not be called',
+            );
+          },
+      });
+
+    client.baseUrl =
+      'https://evil.example';
+
+    await assert.rejects(
+      client.healthCheck(),
+      /baseUrl origin changed after construction/i,
+    );
+
+    assert.equal(
+      requests,
+      0,
+    );
+  },
+);

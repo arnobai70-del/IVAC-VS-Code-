@@ -59,6 +59,25 @@ function isUnsafeDocumentReplay(
   );
 }
 
+
+function sameAllocationIdentity(
+  before,
+  after,
+) {
+  return Boolean(
+    before
+    && after
+    && before.allocationId
+      === after.allocationId
+    && before.jobId
+      === after.jobId
+    && before.ip
+      === after.ip
+    && before.port
+      === after.port,
+  );
+}
+
 export class RecoveryService {
   constructor({
     jobStore,
@@ -215,25 +234,61 @@ export class RecoveryService {
   preserveSameIpForRetry(
     jobId,
   ) {
-    const allocation =
+    const allocationBefore =
       this.ipAllocator
         .getActiveForJob(
           jobId,
         );
 
-    if (!allocation) {
+    if (!allocationBefore) {
       return null;
     }
 
     /*
      * This changes ACTIVE/RESERVED to RETRY_RESERVED.
-     * It does NOT release the allocation and therefore
-     * preserves the exact same proxy/IP for the job.
+     * It does NOT release the allocation.
+     *
+     * Recovery may continue only if the allocator returns the
+     * exact same allocation/job/IP/port identity afterward.
      */
-    return this.ipAllocator
-      .markRetryReserved(
-        jobId,
-      );
+    const allocationAfter =
+      this.ipAllocator
+        .markRetryReserved(
+          jobId,
+        );
+
+    if (
+      !sameAllocationIdentity(
+        allocationBefore,
+        allocationAfter,
+      )
+    ) {
+      return null;
+    }
+
+    return allocationAfter;
+  }
+
+
+  recoverBlockedSessionLoss(
+    job,
+    reasonCode,
+  ) {
+    return {
+      action:
+        'BLOCKED_SESSION_LOSS',
+
+      recovery:
+        this.record({
+          job,
+
+          recoveryStatus:
+            RECOVERY_STATUSES
+              .BLOCKED_SESSION_LOSS,
+
+          reasonCode,
+        }),
+    };
   }
 
   recoverFinalResult(
@@ -368,9 +423,17 @@ export class RecoveryService {
   recoverUnsafeDocumentStep(
     job,
   ) {
-    this.preserveSameIpForRetry(
-      job.id,
-    );
+    const preservedAllocation =
+      this.preserveSameIpForRetry(
+        job.id,
+      );
+
+    if (!preservedAllocation) {
+      return this.recoverBlockedSessionLoss(
+        job,
+        'SAME_IP_ALLOCATION_NOT_RECOVERABLE',
+      );
+    }
 
     return {
       action:
@@ -393,9 +456,17 @@ export class RecoveryService {
   recoverRetryPending(
     job,
   ) {
-    this.preserveSameIpForRetry(
-      job.id,
-    );
+    const preservedAllocation =
+      this.preserveSameIpForRetry(
+        job.id,
+      );
+
+    if (!preservedAllocation) {
+      return this.recoverBlockedSessionLoss(
+        job,
+        'SAME_IP_ALLOCATION_NOT_RECOVERABLE',
+      );
+    }
 
     const retryNumber =
       Math.max(
@@ -429,9 +500,17 @@ export class RecoveryService {
   recoverInterruptedExecution(
     job,
   ) {
-    this.preserveSameIpForRetry(
-      job.id,
-    );
+    const preservedAllocation =
+      this.preserveSameIpForRetry(
+        job.id,
+      );
+
+    if (!preservedAllocation) {
+      return this.recoverBlockedSessionLoss(
+        job,
+        'SAME_IP_ALLOCATION_NOT_RECOVERABLE',
+      );
+    }
 
     if (
       job.retryCount
@@ -633,22 +712,10 @@ export class RecoveryService {
       );
     }
 
-    return {
-      action:
-        'BLOCKED_SESSION_LOSS',
-
-      recovery:
-        this.record({
-          job,
-
-          recoveryStatus:
-            RECOVERY_STATUSES
-              .BLOCKED_SESSION_LOSS,
-
-          reasonCode:
-            'SESSION_STATE_NOT_RECOVERABLE',
-        }),
-    };
+    return this.recoverBlockedSessionLoss(
+      job,
+      'SESSION_STATE_NOT_RECOVERABLE',
+    );
   }
 
   recoverAll() {

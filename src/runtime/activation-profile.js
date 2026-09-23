@@ -12,6 +12,10 @@ const READY_REASON =
   'READY';
 
 
+const INVALID_READINESS_MESSAGE =
+  'readiness must be a valid activation profile readiness result.';
+
+
 function requireBoolean(
   value,
   name,
@@ -44,6 +48,59 @@ function requireActivationProfile(
   }
 
   return value;
+}
+
+
+function invalidReadiness() {
+  throw new TypeError(
+    INVALID_READINESS_MESSAGE,
+  );
+}
+
+
+function isObject(
+  value,
+) {
+  return (
+    value !== null
+    && typeof value === 'object'
+    && !Array.isArray(
+      value,
+    )
+  );
+}
+
+
+function sameStringArray(
+  actual,
+  expected,
+) {
+  if (
+    !Array.isArray(
+      actual,
+    )
+    || actual.length
+      !== expected.length
+  ) {
+    return false;
+  }
+
+  for (
+    let index = 0;
+    index < expected.length;
+    index += 1
+  ) {
+    if (
+      typeof actual[index]
+        !== 'string'
+      || actual[index]
+        !== expected[index]
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 
@@ -189,6 +246,98 @@ export function inspectActivationProfile({
 }
 
 
+function validateReadinessForAssertion({
+  intakeEnabled,
+  readiness,
+}) {
+  if (
+    !isObject(
+      readiness,
+    )
+    || typeof readiness.ready
+      !== 'boolean'
+    || typeof readiness.reason
+      !== 'string'
+    || typeof readiness.state
+      !== 'string'
+    || (
+      readiness.profile
+      !== ACTIVATION_PROFILES.SAFE
+      && readiness.profile
+      !== ACTIVATION_PROFILES.CONTROLLED
+    )
+    || !Array.isArray(
+      readiness.blockers,
+    )
+    || !isObject(
+      readiness.gates,
+    )
+  ) {
+    invalidReadiness();
+  }
+
+  const gates =
+    readiness.gates;
+
+  if (
+    typeof gates.controlledProfile
+      !== 'boolean'
+    || typeof gates.intakeEnabled
+      !== 'boolean'
+    || typeof gates.workflowRuntimeEnabled
+      !== 'boolean'
+    || typeof gates.portalResultEnabled
+      !== 'boolean'
+  ) {
+    invalidReadiness();
+  }
+
+  /*
+   * The assertion boundary must not trust a caller-supplied
+   * ready/state/profile combination.
+   *
+   * Recompute the canonical readiness result from the bounded
+   * gate values and require an exact semantic match.
+   */
+  const expected =
+    inspectActivationProfile({
+      profile:
+        readiness.profile,
+
+      intakeEnabled:
+        gates.intakeEnabled,
+
+      workflowRuntimeEnabled:
+        gates.workflowRuntimeEnabled,
+
+      portalResultEnabled:
+        gates.portalResultEnabled,
+    });
+
+  if (
+    gates.intakeEnabled
+      !== intakeEnabled
+    || readiness.ready
+      !== expected.ready
+    || readiness.reason
+      !== expected.reason
+    || readiness.state
+      !== expected.state
+    || gates.controlledProfile
+      !== expected.gates
+        .controlledProfile
+    || !sameStringArray(
+      readiness.blockers,
+      expected.blockers,
+    )
+  ) {
+    invalidReadiness();
+  }
+
+  return readiness;
+}
+
+
 export function assertActivationProfileForIntake({
   intakeEnabled,
   readiness,
@@ -198,26 +347,11 @@ export function assertActivationProfileForIntake({
     'intakeEnabled',
   );
 
-  if (
-    readiness === null
-    || typeof readiness
-      !== 'object'
-    || Array.isArray(
+  const validatedReadiness =
+    validateReadinessForAssertion({
+      intakeEnabled,
       readiness,
-    )
-    || typeof readiness.ready
-      !== 'boolean'
-    || typeof readiness.reason
-      !== 'string'
-    || typeof readiness.state
-      !== 'string'
-    || typeof readiness.profile
-      !== 'string'
-  ) {
-    throw new TypeError(
-      'readiness must be a valid activation profile readiness result.',
-    );
-  }
+    });
 
   /*
    * Safe/default startup remains usable while destructive intake
@@ -228,17 +362,17 @@ export function assertActivationProfileForIntake({
     intakeEnabled
     !== true
   ) {
-    return readiness;
+    return validatedReadiness;
   }
 
   if (
-    readiness.ready
+    validatedReadiness.ready
     !== true
   ) {
     throw new Error(
-      `Activation profile blocked: ${readiness.reason}.`,
+      `Activation profile blocked: ${validatedReadiness.reason}.`,
     );
   }
 
-  return readiness;
+  return validatedReadiness;
 }

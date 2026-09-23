@@ -554,3 +554,292 @@ test(
     }
   },
 );
+test(
+  'secret readiness assertion rejects forged ready object',
+  () => {
+    const forged = {
+      ready:
+        true,
+
+      reason:
+        'READY',
+
+      blockers:
+        [],
+
+      gates: {
+        intakeEnabled:
+          true,
+
+        portalResultEnabled:
+          true,
+
+        portalApiAccessTokenConfigured:
+          true,
+      },
+
+      secrets: {
+        portalApiAccessTokenConfigured:
+          true,
+      },
+    };
+
+    assert.throws(
+      () => {
+        assertSecretReadinessForIntake({
+          intakeEnabled:
+            true,
+
+          readiness:
+            forged,
+        });
+      },
+
+      {
+        name:
+          'TypeError',
+
+        message:
+          'readiness must be a valid secret readiness result.',
+      },
+    );
+  },
+);
+
+
+test(
+  'secret readiness assertion rejects spread clone that loses provenance',
+  () => {
+    const canonical =
+      inspectSecretReadiness(
+        createReadyOptions(),
+      );
+
+    const cloned = {
+      ...canonical,
+
+      blockers: [
+        ...canonical.blockers,
+      ],
+
+      gates: {
+        ...canonical.gates,
+      },
+
+      secrets: {
+        ...canonical.secrets,
+      },
+    };
+
+    assert.deepEqual(
+      cloned,
+      {
+        ready:
+          true,
+
+        reason:
+          'READY',
+
+        blockers:
+          [],
+
+        gates: {
+          intakeEnabled:
+            true,
+
+          portalResultEnabled:
+            true,
+
+          portalApiAccessTokenConfigured:
+            true,
+        },
+
+        secrets: {
+          portalApiAccessTokenConfigured:
+            true,
+        },
+      },
+    );
+
+    assert.throws(
+      () => {
+        assertSecretReadinessForIntake({
+          intakeEnabled:
+            true,
+
+          readiness:
+            cloned,
+        });
+      },
+
+      {
+        name:
+          'TypeError',
+
+        message:
+          'readiness must be a valid secret readiness result.',
+      },
+    );
+  },
+);
+
+
+test(
+  'secret readiness assertion rejects serialized readiness replay',
+  () => {
+    const canonical =
+      inspectSecretReadiness(
+        createReadyOptions(),
+      );
+
+    const serialized =
+      JSON.stringify(
+        canonical,
+      );
+
+    assert.equal(
+      serialized.includes(
+        'test-secret-token',
+      ),
+      false,
+    );
+
+    const replayed =
+      JSON.parse(
+        serialized,
+      );
+
+    assert.throws(
+      () => {
+        assertSecretReadinessForIntake({
+          intakeEnabled:
+            true,
+
+          readiness:
+            replayed,
+        });
+      },
+
+      {
+        name:
+          'TypeError',
+
+        message:
+          'readiness must be a valid secret readiness result.',
+      },
+    );
+  },
+);
+
+
+test(
+  'secret readiness assertion rejects mismatched intake gate even for genuine readiness',
+  () => {
+    const canonical =
+      inspectSecretReadiness({
+        intakeEnabled:
+          false,
+
+        portalResultEnabled:
+          true,
+
+        portalApiAccessToken:
+          'test-secret-token',
+      });
+
+    assert.equal(
+      canonical.ready,
+      true,
+    );
+
+    assert.equal(
+      canonical.gates
+        .intakeEnabled,
+      false,
+    );
+
+    assert.throws(
+      () => {
+        assertSecretReadinessForIntake({
+          intakeEnabled:
+            true,
+
+          readiness:
+            canonical,
+        });
+      },
+
+      {
+        name:
+          'TypeError',
+
+        message:
+          'readiness must be a valid secret readiness result.',
+      },
+    );
+  },
+);
+
+
+test(
+  'secret readiness assertion rejects full property-descriptor clone',
+  () => {
+    const genuine =
+      inspectSecretReadiness(
+        createReadyOptions(),
+      );
+
+    /*
+     * Copy every observable own property descriptor from the genuine
+     * readiness object. This would also copy any reflectable Symbol
+     * brand if one existed.
+     *
+     * WeakSet provenance must still reject the cloned object because
+     * membership belongs only to the original object identity.
+     */
+    const cloned =
+      Object.defineProperties(
+        {},
+        Object.getOwnPropertyDescriptors(
+          genuine,
+        ),
+      );
+
+    assert.deepEqual(
+      cloned,
+      genuine,
+    );
+
+    assert.notEqual(
+      cloned,
+      genuine,
+    );
+
+    assert.equal(
+      Object.getOwnPropertySymbols(
+        genuine,
+      ).length,
+      0,
+    );
+
+    assert.throws(
+      () => {
+        assertSecretReadinessForIntake({
+          intakeEnabled:
+            true,
+
+          readiness:
+            cloned,
+        });
+      },
+
+      {
+        name:
+          'TypeError',
+
+        message:
+          'readiness must be a valid secret readiness result.',
+      },
+    );
+  },
+);

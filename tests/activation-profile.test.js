@@ -723,3 +723,209 @@ test(
     );
   },
 );
+test(
+  'activation assertion rejects forged ready state under safe profile',
+  () => {
+    const forgedReadiness = {
+      ready:
+        true,
+
+      reason:
+        'READY',
+
+      state:
+        'ACTIVE',
+
+      profile:
+        ACTIVATION_PROFILES
+          .SAFE,
+
+      blockers:
+        [],
+
+      gates: {
+        controlledProfile:
+          false,
+
+        intakeEnabled:
+          true,
+
+        workflowRuntimeEnabled:
+          true,
+
+        portalResultEnabled:
+          true,
+      },
+    };
+
+    assert.throws(
+      () => {
+        assertActivationProfileForIntake({
+          intakeEnabled:
+            true,
+
+          readiness:
+            forgedReadiness,
+        });
+      },
+
+      {
+        name:
+          'TypeError',
+
+        message:
+          'readiness must be a valid activation profile readiness result.',
+      },
+    );
+  },
+);
+
+
+test(
+  'activation assertion rejects tampered controlled-profile gate',
+  () => {
+    const canonical =
+      inspectActivationProfile(
+        createControlledReadyOptions(),
+      );
+
+    const tampered = {
+      ...canonical,
+
+      blockers:
+        [
+          ...canonical.blockers,
+        ],
+
+      gates: {
+        ...canonical.gates,
+
+        controlledProfile:
+          false,
+      },
+    };
+
+    assert.throws(
+      () => {
+        assertActivationProfileForIntake({
+          intakeEnabled:
+            true,
+
+          readiness:
+            tampered,
+        });
+      },
+
+      {
+        name:
+          'TypeError',
+
+        message:
+          'readiness must be a valid activation profile readiness result.',
+      },
+    );
+  },
+);
+
+
+test(
+  'activation assertion rejects mismatched intake gate and assertion input',
+  () => {
+    const canonical =
+      inspectActivationProfile({
+        profile:
+          ACTIVATION_PROFILES
+            .CONTROLLED,
+
+        intakeEnabled:
+          false,
+
+        workflowRuntimeEnabled:
+          true,
+
+        portalResultEnabled:
+          true,
+      });
+
+    assert.equal(
+      canonical.state,
+      'ARMED',
+    );
+
+    assert.throws(
+      () => {
+        assertActivationProfileForIntake({
+          intakeEnabled:
+            true,
+
+          readiness:
+            canonical,
+        });
+      },
+
+      {
+        name:
+          'TypeError',
+
+        message:
+          'readiness must be a valid activation profile readiness result.',
+      },
+    );
+  },
+);
+
+
+test(
+  'activation assertion rejects tampered blocker metadata',
+  () => {
+    const canonical =
+      inspectActivationProfile({
+        profile:
+          ACTIVATION_PROFILES
+            .SAFE,
+
+        intakeEnabled:
+          true,
+
+        workflowRuntimeEnabled:
+          false,
+
+        portalResultEnabled:
+          false,
+      });
+
+    const tampered = {
+      ...canonical,
+
+      blockers: [
+        'WORKFLOW_RUNTIME_DISABLED',
+        'CONTROLLED_ACTIVATION_PROFILE_REQUIRED',
+        'PORTAL_RESULT_DISABLED',
+      ],
+
+      gates: {
+        ...canonical.gates,
+      },
+    };
+
+    assert.throws(
+      () => {
+        assertActivationProfileForIntake({
+          intakeEnabled:
+            true,
+
+          readiness:
+            tampered,
+        });
+      },
+
+      {
+        name:
+          'TypeError',
+
+        message:
+          'readiness must be a valid activation profile readiness result.',
+      },
+    );
+  },
+);

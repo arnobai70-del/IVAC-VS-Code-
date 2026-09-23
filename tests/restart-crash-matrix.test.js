@@ -1312,7 +1312,7 @@ test(
             'job-running',
 
           action:
-            'RETRY_SCHEDULED',
+            'BLOCKED_SESSION_LOSS',
         },
 
         {
@@ -1331,6 +1331,270 @@ test(
             'PRE_EXECUTION_RECOVERABLE',
         },
       ],
+    );
+
+    assert.equal(
+      harness.calls
+        .releaseForJob.length,
+      0,
+    );
+  },
+);
+for (
+  const state
+  of [
+    JOB_STATES.RUNNING,
+    JOB_STATES.WAITING_FOR_OTP,
+    JOB_STATES.RETRY_PENDING,
+  ]
+) {
+  test(
+    `restart matrix: missing same-IP allocation blocks ${state} recovery before retry scheduling`,
+    () => {
+      const job =
+        createJob({
+          state,
+
+          currentStep:
+            state
+            === JOB_STATES.WAITING_FOR_OTP
+              ? 'wait_signin_otp'
+              : 'sign_in',
+
+          retryCount:
+            state
+            === JOB_STATES.RETRY_PENDING
+              ? 2
+              : 0,
+        });
+
+      const harness =
+        createHarness({
+          jobs: [
+            job,
+          ],
+
+          allocation:
+            null,
+        });
+
+      const result =
+        harness.service
+          .recoverJob(
+            job,
+          );
+
+      assert.equal(
+        result.action,
+        'BLOCKED_SESSION_LOSS',
+      );
+
+      assert.equal(
+        result.recovery
+          .recoveryStatus,
+        RECOVERY_STATUSES
+          .BLOCKED_SESSION_LOSS,
+      );
+
+      assert.equal(
+        result.recovery
+          .lastReasonCode,
+        'SAME_IP_ALLOCATION_NOT_RECOVERABLE',
+      );
+
+      assert.equal(
+        harness.calls
+          .incrementRetry.length,
+        0,
+      );
+
+      assert.equal(
+        harness.calls
+          .transitionJob.length,
+        0,
+      );
+
+      assert.equal(
+        harness.calls
+          .retryReserved.length,
+        0,
+      );
+
+      assert.equal(
+        harness.calls
+          .releaseForJob.length,
+        0,
+      );
+    },
+  );
+}
+
+
+test(
+  'restart matrix: missing same-IP allocation blocks unsafe document recovery without replay',
+  () => {
+    const job =
+      createJob({
+        state:
+          JOB_STATES.RUNNING,
+
+        currentStep:
+          'upload-documents',
+      });
+
+    const harness =
+      createHarness({
+        jobs: [
+          job,
+        ],
+
+        allocation:
+          null,
+      });
+
+    const result =
+      harness.service
+        .recoverJob(
+          job,
+        );
+
+    assert.equal(
+      result.action,
+      'BLOCKED_SESSION_LOSS',
+    );
+
+    assert.equal(
+      result.recovery
+        .recoveryStatus,
+      RECOVERY_STATUSES
+        .BLOCKED_SESSION_LOSS,
+    );
+
+    assert.equal(
+      result.recovery
+        .lastReasonCode,
+      'SAME_IP_ALLOCATION_NOT_RECOVERABLE',
+    );
+
+    assert.equal(
+      harness.calls
+        .retryReserved.length,
+      0,
+    );
+
+    assert.equal(
+      harness.calls
+        .incrementRetry.length,
+      0,
+    );
+
+    assert.equal(
+      harness.calls
+        .transitionJob.length,
+      0,
+    );
+
+    assert.equal(
+      harness.calls
+        .releaseForJob.length,
+      0,
+    );
+  },
+);
+
+
+test(
+  'restart matrix: changed IP binding during retry reservation fails closed',
+  () => {
+    const job =
+      createJob({
+        state:
+          JOB_STATES.RUNNING,
+
+        currentStep:
+          'sign_in',
+      });
+
+    const harness =
+      createHarness({
+        jobs: [
+          job,
+        ],
+      });
+
+    harness.service
+      .ipAllocator
+      .markRetryReserved =
+        (jobId) => {
+          harness.calls
+            .retryReserved
+            .push(
+              jobId,
+            );
+
+          return {
+            allocationId:
+              'allocation-1',
+
+            jobId:
+              'job-1',
+
+            proxyId:
+              'proxy-1',
+
+            ip:
+              '203.0.113.99',
+
+            port:
+              8080,
+
+            status:
+              'RETRY_RESERVED',
+          };
+        };
+
+    const result =
+      harness.service
+        .recoverJob(
+          job,
+        );
+
+    assert.equal(
+      result.action,
+      'BLOCKED_SESSION_LOSS',
+    );
+
+    assert.equal(
+      result.recovery
+        .recoveryStatus,
+      RECOVERY_STATUSES
+        .BLOCKED_SESSION_LOSS,
+    );
+
+    assert.equal(
+      result.recovery
+        .lastReasonCode,
+      'SAME_IP_ALLOCATION_NOT_RECOVERABLE',
+    );
+
+    assert.deepEqual(
+      harness.calls
+        .retryReserved,
+      [
+        'job-1',
+      ],
+    );
+
+    assert.equal(
+      harness.calls
+        .incrementRetry.length,
+      0,
+    );
+
+    assert.equal(
+      harness.calls
+        .transitionJob.length,
+      0,
     );
 
     assert.equal(
