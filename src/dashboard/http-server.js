@@ -114,6 +114,7 @@ function assertOperationalService(service) {
     "listLiveAllocations",
     "getCapacity",
     "getRuntimeStatus",
+    "getObservability",
     "getReadiness",
   ];
 
@@ -284,6 +285,24 @@ async function routeRequest({
       await operationalService.getRuntimeStatus();
 
     writeJson(response, 200, runtimeStatus);
+
+    return;
+  }
+
+  if (pathname === "/api/dashboard/observability") {
+    if (request.method !== "GET") {
+      writeMethodNotAllowed(response, ["GET"]);
+      return;
+    }
+
+    const observability =
+      await operationalService.getObservability();
+
+    writeJson(
+      response,
+      200,
+      observability,
+    );
 
     return;
   }

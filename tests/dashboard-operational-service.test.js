@@ -761,3 +761,384 @@ test("readiness provider errors are safely projected", async () => {
     false,
   );
 });
+test("observability is fail-closed when provider is not configured", async () => {
+  const { service } = createFixture();
+
+  assert.deepEqual(
+    await service.getObservability(),
+    {
+      configured: false,
+      snapshot: null,
+    },
+  );
+});
+
+test("configured observability provider exposes strict bounded allowlist only", async () => {
+  const fixture = createFixture();
+
+  const service = new OperationalService({
+    jobStore: fixture.service.jobStore,
+    ipAllocator: fixture.service.ipAllocator,
+    proxyPool: fixture.service.proxyPool,
+    finalResultStore:
+      fixture.service.finalResultStore,
+
+    observabilityProvider: async () => ({
+      checkedAt:
+        "2026-09-23T02:00:00.000Z",
+
+      runtime: {
+        stopped: false,
+        handlingCycle: true,
+        inFlight: 1,
+        memoryContexts: 2,
+        activeExecutions: 1,
+        activeJobs: 1,
+
+        token:
+          "must-not-leak",
+      },
+
+      throughput: {
+        completedCycles: 7,
+        admitted: 12,
+        workflowCompleted: 8,
+        failed: 2,
+        manualChallenges: 3,
+
+        rawPayload:
+          "must-not-leak",
+      },
+
+      manualResume: {
+        total: 4,
+        completed: 2,
+        failed: 1,
+        manualChallenges: 1,
+        aborted: 0,
+
+        cookie:
+          "session-secret",
+      },
+
+      jobs: {
+        incomplete: 3,
+
+        byState: {
+          PENDING: 0,
+          CLAIMED: 0,
+          WAITING_FOR_IP: 0,
+          RUNNING: 1,
+          WAITING_FOR_OTP: 0,
+          WAITING_FOR_MANUAL_CHALLENGE: 1,
+          RETRY_PENDING: 1,
+
+          COMPLETED:
+            999,
+        },
+
+        waitingForManualChallenge:
+          1,
+
+        password:
+          "must-not-leak",
+      },
+
+      network: {
+        liveAllocations: 2,
+        proxies: 3,
+        healthyAvailable: 2,
+
+        ip:
+          "203.0.113.10",
+
+        proxyPassword:
+          "must-not-leak",
+      },
+
+      finalResults: {
+        pending: 1,
+        inFlight: 1,
+        uncertain: 1,
+        delivered: 2,
+
+        payloadHash:
+          "must-not-leak",
+
+        idempotencyKey:
+          "must-not-leak",
+      },
+
+      safety: {
+        readOnly: true,
+        rawPayloads: false,
+        credentialExposure: false,
+        otpExposure: false,
+        cookieExposure: false,
+        proxyAddressExposure: false,
+        automaticManualChallengeResume: false,
+        replacementIpAcquisition: false,
+
+        internalSecret:
+          "must-not-leak",
+      },
+
+      Authorization:
+        "Bearer secret",
+
+      otp:
+        "123456",
+
+      password:
+        "password-secret",
+
+      arbitraryContainer: {
+        secret:
+          "must-not-leak",
+      },
+    }),
+  });
+
+  const result =
+    await service.getObservability();
+
+  assert.deepEqual(
+    result,
+    {
+      configured: true,
+
+      snapshot: {
+        checkedAt:
+          "2026-09-23T02:00:00.000Z",
+
+        runtime: {
+          stopped: false,
+          handlingCycle: true,
+          inFlight: 1,
+          memoryContexts: 2,
+          activeExecutions: 1,
+          activeJobs: 1,
+        },
+
+        throughput: {
+          completedCycles: 7,
+          admitted: 12,
+          workflowCompleted: 8,
+          failed: 2,
+          manualChallenges: 3,
+        },
+
+        manualResume: {
+          total: 4,
+          completed: 2,
+          failed: 1,
+          manualChallenges: 1,
+          aborted: 0,
+        },
+
+        jobs: {
+          incomplete: 3,
+
+          byState: {
+            PENDING: 0,
+            CLAIMED: 0,
+            WAITING_FOR_IP: 0,
+            RUNNING: 1,
+            WAITING_FOR_OTP: 0,
+            WAITING_FOR_MANUAL_CHALLENGE: 1,
+            RETRY_PENDING: 1,
+          },
+
+          waitingForManualChallenge:
+            1,
+        },
+
+        network: {
+          liveAllocations: 2,
+          proxies: 3,
+          healthyAvailable: 2,
+        },
+
+        finalResults: {
+          pending: 1,
+          inFlight: 1,
+          uncertain: 1,
+          delivered: 2,
+        },
+
+        safety: {
+          readOnly: true,
+          rawPayloads: false,
+          credentialExposure: false,
+          otpExposure: false,
+          cookieExposure: false,
+          proxyAddressExposure: false,
+          automaticManualChallengeResume: false,
+          replacementIpAcquisition: false,
+        },
+      },
+    },
+  );
+
+  const serialized =
+    JSON.stringify(result);
+
+  assert.doesNotMatch(
+    serialized,
+    /must-not-leak/i,
+  );
+
+  assert.doesNotMatch(
+    serialized,
+    /Bearer secret/i,
+  );
+
+  assert.doesNotMatch(
+    serialized,
+    /123456/,
+  );
+
+  assert.doesNotMatch(
+    serialized,
+    /session-secret/i,
+  );
+
+  assert.doesNotMatch(
+    serialized,
+    /password-secret/i,
+  );
+
+  assert.doesNotMatch(
+    serialized,
+    /203\.0\.113\.10/,
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      result.snapshot.jobs.byState,
+      "COMPLETED",
+    ),
+    false,
+  );
+});
+
+test("malformed observability snapshot fails closed", async () => {
+  const fixture = createFixture();
+
+  const service = new OperationalService({
+    jobStore: fixture.service.jobStore,
+    ipAllocator: fixture.service.ipAllocator,
+    proxyPool: fixture.service.proxyPool,
+    finalResultStore:
+      fixture.service.finalResultStore,
+
+    observabilityProvider:
+      async () => ({
+        checkedAt:
+          "2026-09-23T02:00:00.000Z",
+
+        runtime: {
+          stopped: false,
+        },
+      }),
+  });
+
+  assert.deepEqual(
+    await service.getObservability(),
+    {
+      configured: true,
+      snapshot: null,
+      reason:
+        "INVALID_OBSERVABILITY_SNAPSHOT",
+    },
+  );
+});
+
+test("observability provider errors are safely projected", async () => {
+  const fixture = createFixture();
+
+  const service = new OperationalService({
+    jobStore: fixture.service.jobStore,
+    ipAllocator: fixture.service.ipAllocator,
+    proxyPool: fixture.service.proxyPool,
+    finalResultStore:
+      fixture.service.finalResultStore,
+
+    observabilityProvider:
+      async () => {
+        const error =
+          new Error(
+            "observability failed using Bearer secret-token",
+          );
+
+        error.code =
+          "OBSERVABILITY_FAILED";
+
+        error.password =
+          "must-not-leak";
+
+        throw error;
+      },
+  });
+
+  const result =
+    await service.getObservability();
+
+  assert.equal(
+    result.configured,
+    true,
+  );
+
+  assert.equal(
+    result.snapshot,
+    null,
+  );
+
+  assert.equal(
+    result.reason,
+    "OBSERVABILITY_CHECK_FAILED",
+  );
+
+  assert.equal(
+    result.error.code,
+    "OBSERVABILITY_FAILED",
+  );
+
+  assert.equal(
+    result.error.message,
+    "observability failed using [REDACTED]",
+  );
+
+  assert.equal(
+    Object.hasOwn(
+      result.error,
+      "password",
+    ),
+    false,
+  );
+});
+
+test("observabilityProvider constructor option is validated", () => {
+  const fixture = createFixture();
+
+  assert.throws(
+    () =>
+      new OperationalService({
+        jobStore:
+          fixture.service.jobStore,
+
+        ipAllocator:
+          fixture.service.ipAllocator,
+
+        proxyPool:
+          fixture.service.proxyPool,
+
+        finalResultStore:
+          fixture.service.finalResultStore,
+
+        observabilityProvider:
+          "invalid",
+      }),
+    /observabilityProvider must be a function or null/,
+  );
+});

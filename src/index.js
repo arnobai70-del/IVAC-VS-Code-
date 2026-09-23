@@ -149,6 +149,10 @@ import {
 } from './runtime/manual-challenge-operations.js';
 
 import {
+  RuntimeObservability,
+} from './runtime/observability.js';
+
+import {
   IntakeLoop,
 } from './runtime/intake-loop.js';
 
@@ -1067,6 +1071,16 @@ export async function main() {
         intakeExecutionHandler,
       });
 
+    const runtimeObservability =
+      new RuntimeObservability({
+        jobStore,
+        ipAllocator,
+        proxyPool,
+        finalResultStore,
+        executionWorker,
+        intakeExecutionHandler,
+      });
+
     intakeLoop =
       new IntakeLoop({
         portalIntakeService,
@@ -1420,6 +1434,11 @@ export async function main() {
               executionWorker
                 .getStatus(),
 
+          observabilityProvider:
+            () =>
+              runtimeObservability
+                .snapshot(),
+
           readinessProvider:
             async () => {
               const health =
@@ -1681,7 +1700,7 @@ export async function main() {
     logger.info(
       {
         phase:
-          35,
+          36,
 
         environment:
           config.app
@@ -1865,7 +1884,7 @@ export async function main() {
 
     return {
       phase:
-        35,
+        36,
 
       readiness:
         runtimeReadiness,

@@ -102,6 +102,86 @@ function createOperationalService() {
       };
     },
 
+    async getObservability() {
+      return {
+        configured: true,
+
+        snapshot: {
+          checkedAt:
+            "2026-09-23T02:00:00.000Z",
+
+          runtime: {
+            stopped: false,
+            handlingCycle: true,
+            inFlight: 1,
+            memoryContexts: 2,
+            activeExecutions: 1,
+            activeJobs: 1,
+
+            token:
+              "must-not-leak",
+          },
+
+          throughput: {
+            completedCycles: 7,
+            admitted: 12,
+            workflowCompleted: 8,
+            failed: 2,
+            manualChallenges: 3,
+          },
+
+          manualResume: {
+            total: 4,
+            completed: 2,
+            failed: 1,
+            manualChallenges: 1,
+            aborted: 0,
+          },
+
+          jobs: {
+            incomplete: 3,
+
+            byState: {
+              PENDING: 0,
+              CLAIMED: 0,
+              WAITING_FOR_IP: 0,
+              RUNNING: 1,
+              WAITING_FOR_OTP: 0,
+              WAITING_FOR_MANUAL_CHALLENGE: 1,
+              RETRY_PENDING: 1,
+            },
+
+            waitingForManualChallenge:
+              1,
+          },
+
+          network: {
+            liveAllocations: 2,
+            proxies: 3,
+            healthyAvailable: 2,
+          },
+
+          finalResults: {
+            pending: 1,
+            inFlight: 1,
+            uncertain: 1,
+            delivered: 2,
+          },
+
+          safety: {
+            readOnly: true,
+            rawPayloads: false,
+            credentialExposure: false,
+            otpExposure: false,
+            cookieExposure: false,
+            proxyAddressExposure: false,
+            automaticManualChallengeResume: false,
+            replacementIpAcquisition: false,
+          },
+        },
+      };
+    },
+
     async getReadiness() {
       return {
         configured: false,
@@ -476,6 +556,69 @@ test("runtime endpoint rejects non-GET methods", async () => {
     const response = await httpJson({
       port,
       path: "/api/dashboard/runtime",
+      method: "POST",
+    });
+
+    assert.equal(response.statusCode, 405);
+
+    assert.equal(
+      response.body.error.code,
+      "METHOD_NOT_ALLOWED",
+    );
+
+    assert.equal(
+      response.headers.allow,
+      "GET",
+    );
+  });
+});
+
+test("observability endpoint returns bounded read-only snapshot", async () => {
+  await withServer(async (port) => {
+    const response = await httpJson({
+      port,
+      path: "/api/dashboard/observability",
+    });
+
+    assert.equal(response.statusCode, 200);
+
+    assert.equal(
+      response.body.configured,
+      true,
+    );
+
+    assert.equal(
+      response.body.snapshot.runtime.inFlight,
+      1,
+    );
+
+    assert.equal(
+      response.body.snapshot.jobs.waitingForManualChallenge,
+      1,
+    );
+
+    assert.equal(
+      response.body.snapshot.safety.readOnly,
+      true,
+    );
+
+    assert.equal(
+      response.body.snapshot.runtime.token,
+      "[REDACTED]",
+    );
+
+    assert.doesNotMatch(
+      JSON.stringify(response.body),
+      /must-not-leak/i,
+    );
+  });
+});
+
+test("observability endpoint rejects non-GET methods", async () => {
+  await withServer(async (port) => {
+    const response = await httpJson({
+      port,
+      path: "/api/dashboard/observability",
       method: "POST",
     });
 

@@ -508,7 +508,7 @@ test(
 
 
 test(
-  'application bootstrap uses Phase 35 explicit manual challenge operations with existing readiness gates',
+  'application bootstrap uses Phase 36 bounded observability with existing readiness gates',
   () => {
     const source =
       readFileSync(
@@ -765,11 +765,40 @@ test(
     );
 
     /*
-     * Bootstrap surfaces bounded readiness states and Phase 35.
+     * Phase 36 adds bounded read-only observability.
+     * Bootstrap must construct RuntimeObservability and expose
+     * only its snapshot through the operational service.
+     */
+    assert.equal(
+      source.includes(
+        "from './runtime/observability.js';",
+      ),
+      true,
+    );
+
+    assert.equal(
+      source.includes(
+        'RuntimeObservability',
+      ),
+      true,
+    );
+
+    assert.match(
+      source,
+      /new RuntimeObservability\(\{\s*jobStore,\s*ipAllocator,\s*proxyPool,\s*finalResultStore,\s*executionWorker,\s*intakeExecutionHandler,\s*\}\)/,
+    );
+
+    assert.match(
+      source,
+      /observabilityProvider:\s*\(\)\s*=>\s*runtimeObservability\s*\.snapshot\(\)/,
+    );
+
+    /*
+     * Bootstrap surfaces bounded readiness states and Phase 36.
      */
     assert.match(
       source,
-      /phase:\s*35/,
+      /phase:\s*36/,
     );
 
     assert.match(

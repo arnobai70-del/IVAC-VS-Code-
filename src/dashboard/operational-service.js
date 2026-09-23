@@ -439,6 +439,169 @@ function projectRuntimeStatus(record) {
   };
 }
 
+const OBSERVABILITY_JOB_STATES = Object.freeze([
+  "PENDING",
+  "CLAIMED",
+  "WAITING_FOR_IP",
+  "RUNNING",
+  "WAITING_FOR_OTP",
+  "WAITING_FOR_MANUAL_CHALLENGE",
+  "RETRY_PENDING",
+]);
+
+function containsNull(value) {
+  if (value === null) {
+    return true;
+  }
+
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return Object.values(value).some(containsNull);
+}
+
+function projectObservabilitySnapshot(record) {
+  if (!isObject(record)) {
+    return null;
+  }
+
+  const runtime = record.runtime;
+  const throughput = record.throughput;
+  const manualResume = record.manualResume;
+  const jobs = record.jobs;
+  const byState = jobs?.byState;
+  const network = record.network;
+  const finalResults = record.finalResults;
+  const safety = record.safety;
+
+  if (
+    !isObject(runtime) ||
+    !isObject(throughput) ||
+    !isObject(manualResume) ||
+    !isObject(jobs) ||
+    !isObject(byState) ||
+    !isObject(network) ||
+    !isObject(finalResults) ||
+    !isObject(safety)
+  ) {
+    return null;
+  }
+
+  const projectedByState = {};
+
+  for (const state of OBSERVABILITY_JOB_STATES) {
+    projectedByState[state] =
+      asSafeCount(byState[state]);
+  }
+
+  const projected = {
+    checkedAt:
+      asSafeTimestamp(record.checkedAt),
+
+    runtime: {
+      stopped:
+        asSafeBoolean(runtime.stopped),
+      handlingCycle:
+        asSafeBoolean(runtime.handlingCycle),
+      inFlight:
+        asSafeCount(runtime.inFlight),
+      memoryContexts:
+        asSafeCount(runtime.memoryContexts),
+      activeExecutions:
+        asSafeCount(runtime.activeExecutions),
+      activeJobs:
+        asSafeCount(runtime.activeJobs),
+    },
+
+    throughput: {
+      completedCycles:
+        asSafeCount(throughput.completedCycles),
+      admitted:
+        asSafeCount(throughput.admitted),
+      workflowCompleted:
+        asSafeCount(throughput.workflowCompleted),
+      failed:
+        asSafeCount(throughput.failed),
+      manualChallenges:
+        asSafeCount(throughput.manualChallenges),
+    },
+
+    manualResume: {
+      total:
+        asSafeCount(manualResume.total),
+      completed:
+        asSafeCount(manualResume.completed),
+      failed:
+        asSafeCount(manualResume.failed),
+      manualChallenges:
+        asSafeCount(manualResume.manualChallenges),
+      aborted:
+        asSafeCount(manualResume.aborted),
+    },
+
+    jobs: {
+      incomplete:
+        asSafeCount(jobs.incomplete),
+      byState:
+        projectedByState,
+      waitingForManualChallenge:
+        asSafeCount(
+          jobs.waitingForManualChallenge,
+        ),
+    },
+
+    network: {
+      liveAllocations:
+        asSafeCount(network.liveAllocations),
+      proxies:
+        asSafeCount(network.proxies),
+      healthyAvailable:
+        asSafeCount(network.healthyAvailable),
+    },
+
+    finalResults: {
+      pending:
+        asSafeCount(finalResults.pending),
+      inFlight:
+        asSafeCount(finalResults.inFlight),
+      uncertain:
+        asSafeCount(finalResults.uncertain),
+      delivered:
+        asSafeCount(finalResults.delivered),
+    },
+
+    safety: {
+      readOnly:
+        asSafeBoolean(safety.readOnly),
+      rawPayloads:
+        asSafeBoolean(safety.rawPayloads),
+      credentialExposure:
+        asSafeBoolean(safety.credentialExposure),
+      otpExposure:
+        asSafeBoolean(safety.otpExposure),
+      cookieExposure:
+        asSafeBoolean(safety.cookieExposure),
+      proxyAddressExposure:
+        asSafeBoolean(safety.proxyAddressExposure),
+      automaticManualChallengeResume:
+        asSafeBoolean(
+          safety.automaticManualChallengeResume,
+        ),
+      replacementIpAcquisition:
+        asSafeBoolean(
+          safety.replacementIpAcquisition,
+        ),
+    },
+  };
+
+  if (containsNull(projected)) {
+    return null;
+  }
+
+  return projected;
+}
+
 function countByState(records, selector) {
   const counts = Object.create(null);
 
@@ -466,6 +629,7 @@ export class OperationalService {
     finalResultStore,
     readinessProvider = null,
     runtimeStatusProvider = null,
+    observabilityProvider = null,
   }) {
     assertStoreMethod(jobStore, "listIncompleteJobs");
     assertStoreMethod(jobStore, "getJobById");
@@ -508,12 +672,23 @@ export class OperationalService {
       );
     }
 
+    if (
+      observabilityProvider !== null &&
+      typeof observabilityProvider !== "function"
+    ) {
+      throw new TypeError(
+        "observabilityProvider must be a function or null",
+      );
+    }
+
     this.jobStore = jobStore;
     this.ipAllocator = ipAllocator;
     this.proxyPool = proxyPool;
     this.finalResultStore = finalResultStore;
     this.readinessProvider = readinessProvider;
     this.runtimeStatusProvider = runtimeStatusProvider;
+    this.observabilityProvider =
+      observabilityProvider;
   }
 
   getOverview() {
@@ -678,6 +853,49 @@ export class OperationalService {
         status: null,
         error:
           sanitizeOperationalError(error),
+      };
+    }
+  }
+
+  async getObservability() {
+    if (!this.observabilityProvider) {
+      return {
+        configured: false,
+        snapshot: null,
+      };
+    }
+
+    try {
+      const rawSnapshot =
+        await this.observabilityProvider();
+
+      const snapshot =
+        projectObservabilitySnapshot(
+          rawSnapshot,
+        );
+
+      if (!snapshot) {
+        return {
+          configured: true,
+          snapshot: null,
+          reason:
+            "INVALID_OBSERVABILITY_SNAPSHOT",
+        };
+      }
+
+      return {
+        configured: true,
+        snapshot,
+      };
+    } catch (error) {
+      return {
+        configured: true,
+        snapshot: null,
+        reason:
+          "OBSERVABILITY_CHECK_FAILED",
+        error: {
+          ...sanitizeOperationalError(error),
+        },
       };
     }
   }
